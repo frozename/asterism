@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { promisify } from 'node:util';
 import { adapters } from '../src/adapters/index.js';
-import { buildTmuxPlan, runCell, socketLabel } from '../src/capture/tmux.js';
+import { buildTmuxPlan, captures as tmuxCaptures, runCell, socketLabel } from '../src/capture/tmux.js';
 import { findLeaks } from '../src/core/scrub.js';
 
 const execFileAsync = promisify(execFile);
@@ -67,6 +67,16 @@ function findManualRecipe() {
     if (found) return found;
   }
   return null;
+}
+
+// Derived from the registry + tmux.js rather than a literal list, so this
+// stays true if either grows or loses a cell.
+function expectedCellSourceLines() {
+  const recipes = [...tmuxCaptures];
+  for (const adapter of adapters.values()) {
+    if (adapter.captures) recipes.push(...adapter.captures);
+  }
+  return new Set(recipes.map((recipe) => `${recipe.cell}  ${recipe.source}`));
 }
 
 test('captures a file-source cell, scrubs it, and writes raw + meta.json relative to cwd', async () => {
@@ -219,6 +229,28 @@ test('a manual cell captured with --from reads the given file, scrubs it, and re
   assert.equal(raw.includes(fakeUuid), false);
 });
 
+test('a manual cell captured with --from pointing at a nonexistent path exits 2, names --from and the path, and writes nothing (control: readable --from above still exits 0)', async () => {
+  const recipe = findManualRecipe();
+  assert.ok(recipe, 'expected at least one manual-source capture recipe registered');
+
+  const home = makeTempHome();
+  const cwd = makeCwdWithFixtures();
+  const fromDir = mkdtempSync(path.join(os.tmpdir(), 'ast-manual-from-'));
+  const missingFromFile = path.join(fromDir, 'does-not-exist.txt');
+
+  const { code, stderr } = await runAst(
+    ['fixture', 'capture', recipe.cell, '--home', home, '--from', missingFromFile],
+    { cwd, env: baseEnv(home) },
+  );
+
+  assert.equal(code, 2);
+  assert.match(stderr, /--from/);
+  assert.ok(stderr.includes(missingFromFile), 'stderr should name the unreadable --from path');
+
+  const cellDir = path.join(cwd, 'fixtures', ...recipe.cell.split('/'));
+  assert.equal(existsSync(cellDir), false, 'nothing should be written under fixtures/ for an unreadable --from path');
+});
+
 test('a manual cell captured without --from exits 2 and names the flag and the recipe provoke text', async () => {
   const recipe = findManualRecipe();
   assert.ok(recipe, 'expected at least one manual-source capture recipe registered');
@@ -252,7 +284,7 @@ test('--from given for a non-manual cell exits 2', async () => {
   assert.match(stderr, /--from/);
 });
 
-test('ast fixture list exits 0 and lists known cells', async () => {
+test('ast fixture list exits 0 and prints "<cell>  <source>" for every known cell, sorted by cell', async () => {
   const home = makeTempHome();
   const cwd = makeCwdWithFixtures();
 
@@ -261,6 +293,23 @@ test('ast fixture list exits 0 and lists known cells', async () => {
   assert.equal(code, 0);
   assert.ok(stdout.includes(HELP_CELL));
   assert.ok(stdout.includes('tmux/list-panes'));
+
+  const lines = stdout.trimEnd().split('\n');
+  // tmux.js registers its own cells with source 'tmux', a fourth kind
+  // alongside the adapter-recipe sources 'argv' | 'file' | 'manual'.
+  const lineWithSourcePattern = /^[a-z0-9/_.-]+ {2}(argv|file|manual|tmux)$/;
+  for (const line of lines) {
+    assert.match(line, lineWithSourcePattern, `line "${line}" should be "<cell>  <source>"`);
+  }
+
+  assert.deepEqual(new Set(lines), expectedCellSourceLines());
+  assert.ok(lines.some((line) => line.endsWith('  manual')), 'expected at least one manual-source cell listed');
+
+  const sortedCells = lines.map((line) => line.split('  ')[0]);
+  assert.deepEqual(sortedCells, [...sortedCells].sort());
+
+  // control: the pattern must reject a cell id printed without its source.
+  assert.equal(lineWithSourcePattern.test(HELP_CELL), false, 'the pattern should reject a line without a source');
 });
 
 test('tmux argv plans use a hermetic asterism- socket, -u, -f /dev/null, ending in kill-server', () => {

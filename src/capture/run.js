@@ -9,11 +9,13 @@ import { captures as tmuxCaptures } from './tmux.js';
 export const CELL_ID_PATTERN = /^[a-z][a-z0-9-]*(\/[a-z0-9][a-z0-9-]*)*$/;
 
 export function listKnownCells() {
-  const cells = tmuxCaptures.map((recipe) => recipe.cell);
+  const recipes = [...tmuxCaptures];
   for (const adapter of adapters.values()) {
-    if (adapter.captures) cells.push(...adapter.captures.map((recipe) => recipe.cell));
+    if (adapter.captures) recipes.push(...adapter.captures);
   }
-  return cells.sort();
+  return recipes
+    .map((recipe) => ({ cell: recipe.cell, source: recipe.source }))
+    .sort((a, b) => (a.cell < b.cell ? -1 : a.cell > b.cell ? 1 : 0));
 }
 
 export function resolveRecipe(cellId) {
@@ -41,7 +43,9 @@ export async function captureCell(cellId, { home, env, cwd, repoRoot, provokedBy
     return {
       ok: false,
       exitCode: 2,
-      message: `unknown cell "${cellId}". known cells:\n${listKnownCells().join('\n')}`,
+      message: `unknown cell "${cellId}". known cells:\n${listKnownCells()
+        .map((entry) => entry.cell)
+        .join('\n')}`,
     };
   }
 
@@ -86,7 +90,16 @@ export async function captureCell(cellId, { home, env, cwd, repoRoot, provokedBy
       text = result.text;
       command = result.command;
     } else if (recipe.source === 'manual') {
-      const result = await readManualSource(fromPath);
+      let result;
+      try {
+        result = await readManualSource(fromPath);
+      } catch (error) {
+        return {
+          ok: false,
+          exitCode: 2,
+          message: `--from: cannot read ${fromPath}: ${error.code ?? error.message}`,
+        };
+      }
       text = result.text;
       command = result.command;
     } else {

@@ -3,9 +3,9 @@
 A command-line tool, in early development, for working across several coding-agent CLI
 sessions at once when each session lives in its own tmux pane.
 
-> asterism is not usable yet. No product code is in the tree; what is checked in
-> today is the test harness and repository-hygiene guards that future code will
-> have to pass.
+> asterism is not usable yet. The tree holds the test harness, the structural
+> guards, and four developer-facing verbs; no product verb -- listing sessions,
+> jumping to one -- exists yet.
 
 ## What it is for
 
@@ -33,8 +33,9 @@ configuration tree, and not a version manager.
 
 ## Status
 
-The current tree is the harness described above; future product code will have to satisfy
-it. For the current inventory, run `git ls-files`.
+The tree holds the test harness and repository-hygiene guards described below, plus
+`bin/ast` and the developer-facing verbs listed under Verbs. No product verb is in the tree
+yet. For the current inventory, run `git ls-files`.
 
 The suite covers the zero-dependency policy in `test/no-deps.test.mjs`; runner discovery in
 `test/test-discovery.test.mjs`, which pins the test script against the directory-argument
@@ -44,6 +45,18 @@ visible through Git's exclude-standard file list, and unpushed commit messages; 
 hashes of normalized token windows, so the values themselves are never stored. Ignore-rule
 coverage lives in `test/ignore-rules.test.mjs`, which asserts load-bearing rules by effect
 via `git check-ignore` and pairs them with a control set of paths asserted not ignored.
+
+## Verbs
+
+`bin/ast <verb>` dispatches to one of the following. None of these are product verbs --
+listing sessions or jumping to one is not implemented anywhere in the tree.
+
+| Verb | What it does | Mutating |
+| --- | --- | --- |
+| `ast version` | prints the installed asterism version | no |
+| `ast probe --static [--json] [--home <dir>] [--adapter <id>]` | extracts symbol counts from an installed agent CLI binary | no |
+| `ast fixture capture <cell> [--from <path>]` / `ast fixture list` | captures a scrubbed fixture cell into `fixtures/`, or lists known cells with their source kind | yes |
+| `ast doctor [--json]` | runs every registered health check and reports pass/warn/fail/todo; exits non-zero while any check is todo or fail | no |
 
 ## Requirements
 

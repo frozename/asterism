@@ -8,7 +8,7 @@ export async function run(argv, ctx) {
   const [subcommand, ...rest] = argv;
 
   if (subcommand === 'list') {
-    for (const cell of listKnownCells()) process.stdout.write(`${cell}\n`);
+    for (const { cell, source } of listKnownCells()) process.stdout.write(`${cell}  ${source}\n`);
     return 0;
   }
 
