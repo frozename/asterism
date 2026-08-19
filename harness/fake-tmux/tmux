@@ -1,0 +1,76 @@
+#!/usr/bin/env node
+import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+
+const NO_VALUE_GLOBAL_FLAGS = new Set(['-u', '-2', '-C']);
+const VALUE_GLOBAL_FLAGS = new Set(['-L', '-S', '-f', '-T']);
+
+function fixtureKey(argv) {
+  let index = 0;
+  while (index < argv.length) {
+    const arg = argv[index];
+    if (NO_VALUE_GLOBAL_FLAGS.has(arg)) {
+      index += 1;
+      continue;
+    }
+    if (VALUE_GLOBAL_FLAGS.has(arg)) {
+      index += 2;
+      continue;
+    }
+    return arg;
+  }
+  return undefined;
+}
+
+function main(argv) {
+  const logPath = process.env.ASTERISM_FAKE_TMUX_LOG;
+  if (!logPath) {
+    process.stderr.write('fake-tmux: ASTERISM_FAKE_TMUX_LOG is not set\n');
+    return 70;
+  }
+
+  appendFileSync(
+    logPath,
+    `${JSON.stringify({ argv, cwd: process.cwd(), at: new Date().toISOString() })}\n`,
+  );
+
+  if (argv.includes('-V')) {
+    const version = process.env.ASTERISM_FAKE_TMUX_VERSION || '3.7c';
+    process.stdout.write(`tmux ${version}\n`);
+    return 0;
+  }
+
+  const fixturesDir = process.env.ASTERISM_FAKE_TMUX_FIXTURES;
+  if (!fixturesDir) {
+    process.stderr.write('fake-tmux: ASTERISM_FAKE_TMUX_FIXTURES is not set\n');
+    return 70;
+  }
+
+  const key = fixtureKey(argv);
+  if (key === undefined) {
+    process.stderr.write('fake-tmux: no subcommand found in argv\n');
+    return 127;
+  }
+
+  const outPath = path.join(fixturesDir, `${key}.out`);
+  const rcPath = path.join(fixturesDir, `${key}.rc`);
+  const outExists = existsSync(outPath);
+  const rcExists = existsSync(rcPath);
+
+  if (!outExists && !rcExists) {
+    process.stderr.write(`fake-tmux: no fixture for ${key}\n`);
+    return 127;
+  }
+
+  if (outExists) {
+    process.stdout.write(readFileSync(outPath));
+  }
+
+  if (rcExists) {
+    return parseInt(readFileSync(rcPath, 'utf8').trim(), 10);
+  }
+
+  return 0;
+}
+
+process.exitCode = main(process.argv.slice(2));
