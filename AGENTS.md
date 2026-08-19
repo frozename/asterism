@@ -1,0 +1,79 @@
+# AGENTS.md
+
+Canonical, vendor-neutral instructions for any tool or person working in this
+repo. Vendor-specific pointer files at the repo root defer to this one; they
+must not disagree with it.
+
+## `.gitignore` and `LICENSE` are append-only
+
+Never regenerate, rewrite, or reformat either file. An ordinary "scaffold a
+`.gitignore`" or "rewrite my `LICENSE`" command drops every existing rule
+silently, and the next `git add -A` stages what those rules were excluding --
+into a public, MIT-licensed history that cannot be retracted. Edit by
+appending only.
+
+Corollary: stage explicit paths. Use `git add path/one path/two`. Never
+`git add -A`, never `git add .`.
+
+## Zero runtime dependencies
+
+`package.json` has no `dependencies` and no `devDependencies` key. Do not
+`npm install` or `bun install`, do not add a lockfile, do not create
+`node_modules/`. Enforced by `test/no-deps.test.mjs`.
+
+## `npm test` is bare `node --test`
+
+Node's default discovery scans the tree for `*.test.mjs`. Passing a directory
+-- `node --test test/` -- makes Node resolve that argument as a module specifier
+and run only `test/index.js`; every other test file is silently skipped.
+Pinned by `test/test-discovery.test.mjs`.
+
+## Both runners must be green
+
+`node --test` and `bun test` both exit 0. A divergence between them is a
+portability signal about the code under test -- investigate it, don't paper
+over it.
+
+## Test naming
+
+Tests live in `test/` and are named `*.test.mjs` -- the default pattern both
+runners use.
+
+## Banned shell APIs
+
+No `child_process.exec`, no `execSync`, no `{ shell: true }`. Use `execFile`
+or `spawn` with an argv array. Any path that hands a shell a string it built
+from a value it did not mint executes whatever that value contains.
+
+Match the style already in `harness/secret-scan.mjs`: named `export function`,
+`node:`-prefixed builtins, `execFile` promisified through `node:util`.
+
+## Secret and PII scan
+
+`test/repo-hygiene.test.mjs` runs `harness/secret-scan.mjs` over both the
+files `git add -A` would stage (the union of `git ls-files --cached` and
+`git ls-files --others --exclude-standard`) and the messages of every
+unpushed commit reachable from `HEAD`. With no upstream configured -- this
+repository's current state -- the commit-message scan falls back to every
+commit reachable by `git log --all`; that coverage narrows silently once an
+upstream is set. It tokenises the input, slides a 1-to-4-token window,
+sha256-hashes each window, and checks each hash against a fixture of digests --
+so the plaintext values are never stored in the repo. A finding reports a
+location and a hash, never the matched text.
+
+The one thing it cannot see: it fires only on values whose digest is already
+in the fixture. Fresh prose someone writes into a commit-message body or an
+ignore-file comment isn't a pre-digested value and won't match; that content
+needs a human read.
+
+## Before you commit
+
+```
+node --test
+bun test
+git status --short
+git diff --stat $(git merge-base main HEAD)..HEAD
+```
+
+Stage explicit paths (`git add <exact paths>`), then commit once with a
+neutral imperative subject.
