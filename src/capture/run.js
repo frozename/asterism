@@ -1,0 +1,173 @@
+import { createHash } from 'node:crypto';
+import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { adapters } from '../adapters/index.js';
+import { scrub } from '../core/scrub.js';
+import { procexec } from '../io/procexec.js';
+import { captures as tmuxCaptures } from './tmux.js';
+
+export const CELL_ID_PATTERN = /^[a-z][a-z0-9-]*(\/[a-z0-9][a-z0-9-]*)*$/;
+
+export function listKnownCells() {
+  const cells = tmuxCaptures.map((recipe) => recipe.cell);
+  for (const adapter of adapters.values()) {
+    if (adapter.captures) cells.push(...adapter.captures.map((recipe) => recipe.cell));
+  }
+  return cells.sort();
+}
+
+export function resolveRecipe(cellId) {
+  const segment = cellId.split('/')[0];
+
+  if (segment === 'tmux') {
+    const recipe = tmuxCaptures.find((entry) => entry.cell === cellId);
+    return recipe ? { recipe, kind: 'tmux', adapter: null } : null;
+  }
+
+  const adapter = adapters.get(segment);
+  if (!adapter || !adapter.captures) return null;
+
+  const recipe = adapter.captures.find((entry) => entry.cell === cellId);
+  return recipe ? { recipe, kind: 'adapter', adapter } : null;
+}
+
+export async function captureCell(cellId, { home, env, cwd, repoRoot, provokedBy = '' }) {
+  if (!CELL_ID_PATTERN.test(cellId)) {
+    return { ok: false, exitCode: 2, message: `invalid cell id "${cellId}"` };
+  }
+
+  const resolved = resolveRecipe(cellId);
+  if (!resolved) {
+    return {
+      ok: false,
+      exitCode: 2,
+      message: `unknown cell "${cellId}". known cells:\n${listKnownCells().join('\n')}`,
+    };
+  }
+
+  const { recipe, kind, adapter } = resolved;
+  let text;
+  let command;
+  let cliVersion = null;
+  let tmuxVersion = null;
+  let profileHash = 'absent';
+
+  if (kind === 'tmux') {
+    const outcome = await recipe.run({ env });
+    if (!outcome.ok) {
+      return { ok: false, exitCode: 1, message: outcome.message };
+    }
+    text = outcome.text;
+    command = outcome.command;
+    tmuxVersion = outcome.version;
+  } else {
+    const recipeEnv = recipe.env ? recipe.env(home) : {};
+    const mergedEnv = { ...env, ...recipeEnv };
+
+    if (recipe.source === 'argv') {
+      const result = await procexec(recipe.argv, { env: mergedEnv, cwd });
+      text = result.stdout.toString('utf8');
+      command = recipe.argv;
+    } else if (recipe.source === 'file') {
+      const result = await readFileSource(recipe, home);
+      text = result.text;
+      command = result.command;
+    } else {
+      return { ok: false, exitCode: 1, message: `recipe "${cellId}" has unknown source "${recipe.source}"` };
+    }
+
+    cliVersion = await resolveCliVersion(recipe, mergedEnv);
+    profileHash = await resolveProfileHash(adapter, home);
+  }
+
+  if (Buffer.byteLength(text, 'utf8') === 0) {
+    return { ok: false, exitCode: 1, message: `capture of "${cellId}" produced 0 bytes -- state was not provoked` };
+  }
+
+  const { text: scrubbedText, redactions } = scrub(text, { home, extraRoots: [repoRoot] });
+  const raw = Buffer.from(scrubbedText, 'utf8');
+  const sha256 = createHash('sha256').update(raw).digest('hex');
+
+  const meta = {
+    cell: cellId,
+    sha256,
+    bytes: raw.length,
+    capturedAt: new Date().toISOString(),
+    provokedBy,
+    command,
+    cliVersion,
+    tmuxVersion,
+    profileHash,
+    redactions,
+    kills: [],
+  };
+
+  const cellDir = path.join(cwd, 'fixtures', ...cellId.split('/'));
+  await writeCellAtomic(cellDir, raw, meta);
+
+  return { ok: true, exitCode: 0, cellId, bytes: raw.length, redactionCount: redactions.length, cellDir };
+}
+
+async function readFileSource(recipe, home) {
+  const pattern = recipe.file(home);
+  const dir = path.dirname(pattern);
+  const base = path.basename(pattern);
+  const matcher = globToRegExp(base);
+
+  let entries;
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return { text: '', command: `read ${pattern}` };
+  }
+
+  const names = entries.filter((entry) => matcher.test(entry)).sort();
+  const parts = [];
+  for (const name of names) {
+    const content = await readFile(path.join(dir, name), 'utf8');
+    parts.push(`### ${name}\n${content}`);
+  }
+
+  return { text: parts.join(''), command: `read ${pattern}` };
+}
+
+function globToRegExp(pattern) {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+  return new RegExp(`^${escaped}$`);
+}
+
+async function resolveCliVersion(recipe, env) {
+  if (!recipe.cliVersionArgv) return null;
+  try {
+    const result = await procexec(recipe.cliVersionArgv, { env, timeoutMs: 10000 });
+    const text = result.stdout.toString('utf8').trim();
+    return text.length > 0 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveProfileHash(adapter, home) {
+  if (!adapter || typeof adapter.profileFile !== 'function') return 'absent';
+
+  try {
+    const content = await readFile(adapter.profileFile(home));
+    return createHash('sha256').update(content).digest('hex');
+  } catch {
+    return 'absent';
+  }
+}
+
+async function writeCellAtomic(cellDir, raw, meta) {
+  await mkdir(cellDir, { recursive: true });
+  const metaJson = `${JSON.stringify(meta, null, 2)}\n`;
+
+  await atomicWrite(path.join(cellDir, 'raw'), raw);
+  await atomicWrite(path.join(cellDir, 'meta.json'), metaJson);
+}
+
+async function atomicWrite(targetPath, data) {
+  const tmpPath = `${targetPath}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`;
+  await writeFile(tmpPath, data);
+  await rename(tmpPath, targetPath);
+}

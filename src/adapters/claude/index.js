@@ -1,9 +1,13 @@
+import { captures, profileFile } from './captures.js';
+
 function binaryCandidates(home) {
   return [{ dir: `${home}/.local/share/claude/versions`, pick: 'newest' }];
 }
 
 export default Object.freeze({
   id: 'claude',
+  captures,
+  profileFile,
   agentEnvMarkers: Object.freeze([
     'CLAUDECODE',
     'CLAUDE_CODE_ENTRYPOINT',
