@@ -15,6 +15,21 @@ appending only.
 Corollary: stage explicit paths. Use `git add path/one path/two`. Never
 `git add -A`, never `git add .`.
 
+## Ignore rules are pinned by a test
+
+`test/ignore-rules.test.mjs` asserts load-bearing ignore rules by effect: it
+runs `git check-ignore --no-index` against protected paths instead of checking
+that rule text appears in `.gitignore`, because a present rule can be shadowed
+by a later negation and still do nothing. It also asserts matching controls are
+not ignored; a check that can only answer one way proves nothing, and a
+malformed invocation can answer "ignored" for every input.
+
+The test separately asserts that the set `git add -A` would stage contains no
+protected path. It fails closed: a missing `.gitignore`, or a `check-ignore`
+exit code other than 0 or 1, is a failure and never a skip. If you add a
+load-bearing rule to `.gitignore`, add it to that test too, or it is not
+actually guarded.
+
 ## Zero runtime dependencies
 
 `package.json` has no `dependencies` and no `devDependencies` key. Do not
