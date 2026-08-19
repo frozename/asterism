@@ -1,0 +1,126 @@
+[manifest]
+schema = 1
+
+# --- required, adapter claude ---
+
+[cells."claude/help"]
+kind = "required"
+capture = "ast fixture capture claude/help"
+why = "flag surface; capability signature"
+
+[cells."claude/agents-json/idle"]
+kind = "required"
+capture = "ast fixture capture claude/agents-json/idle"
+why = "agents.json record while idle; baseline shape for status parsing"
+
+[cells."claude/agents-json/busy"]
+kind = "required"
+capture = "ast fixture capture claude/agents-json/busy"
+why = "agents.json record while busy; distinguishes busy from idle in the same schema"
+
+[cells."claude/agents-json/waiting"]
+kind = "required"
+capture = "ast fixture capture claude/agents-json/waiting"
+why = "agents.json record while waiting on the human; the state the router most needs to detect"
+
+[cells."claude/registry/idle"]
+kind = "required"
+capture = "ast fixture capture claude/registry/idle"
+why = "registry entry while idle; cross-checks agents.json against the session registry"
+
+[cells."claude/registry/busy"]
+kind = "required"
+capture = "ast fixture capture claude/registry/busy"
+why = "registry entry while busy; cross-checks agents.json against the session registry"
+
+[cells."claude/registry/waiting"]
+kind = "required"
+capture = "ast fixture capture claude/registry/waiting"
+why = "registry entry while waiting; cross-checks agents.json against the session registry"
+
+[cells."claude/registry/null-status"]
+kind = "required"
+capture = "ast fixture capture claude/registry/null-status"
+why = "a record with status null was observed live; the parser must not assume a non-null string"
+
+# --- manual, adapter claude (needs an interactive terminal to provoke) ---
+
+[cells."claude/hook/session-start"]
+kind = "manual"
+capture = "ast fixture capture claude/hook/session-start"
+maxAgeDays = 90
+why = "session-start hook payload; only fires on a live interactive session start"
+
+[cells."claude/transcript"]
+kind = "manual"
+capture = "ast fixture capture claude/transcript"
+maxAgeDays = 90
+why = "a real transcript file; needs a live session to accumulate turns"
+
+[cells."claude/screen/permission-prompt"]
+kind = "manual"
+capture = "ast fixture capture claude/screen/permission-prompt"
+maxAgeDays = 90
+why = "permission dialog screen; only reachable by provoking a live tool-use prompt"
+
+[cells."claude/screen/picker"]
+kind = "manual"
+capture = "ast fixture capture claude/screen/picker"
+maxAgeDays = 90
+why = "model or session picker screen; needs an interactive terminal to open"
+
+[cells."claude/screen/trust-gate"]
+kind = "manual"
+capture = "ast fixture capture claude/screen/trust-gate"
+maxAgeDays = 90
+why = "first-run trust gate screen; shown once per fresh config, needs a live prompt"
+
+[cells."claude/screen/narrow"]
+kind = "manual"
+capture = "ast fixture capture claude/screen/narrow"
+maxAgeDays = 90
+why = "narrow-terminal rendering; needs a live session resized to a narrow column count"
+
+# --- required, tmux ---
+
+[cells."tmux/list-panes"]
+kind = "required"
+capture = "ast fixture capture tmux/list-panes"
+why = "pane enumeration shape; how asterism discovers panes to bind"
+
+[cells."tmux/list-clients"]
+kind = "required"
+capture = "ast fixture capture tmux/list-clients"
+why = "client enumeration shape; distinguishes attached clients from panes"
+
+[cells."tmux/capture-pane/plain"]
+kind = "required"
+capture = "ast fixture capture tmux/capture-pane/plain"
+why = "plain pane capture; baseline text without escape sequences"
+
+[cells."tmux/capture-pane/escapes"]
+kind = "required"
+capture = "ast fixture capture tmux/capture-pane/escapes"
+why = "escape-sequence pane capture; column alignment depends on redactions staying length-preserving"
+
+# --- n/a, deferred to Phase 6 ---
+
+[cells."codex/help"]
+kind = "n/a"
+reason = "deferred to Phase 6"
+why = "flag surface for a future codex adapter"
+
+[cells."gemini/help"]
+kind = "n/a"
+reason = "deferred to Phase 6"
+why = "flag surface for a future gemini adapter"
+
+[cells."copilot/help"]
+kind = "n/a"
+reason = "deferred to Phase 6"
+why = "flag surface for a future copilot adapter"
+
+[cells."opencode/help"]
+kind = "n/a"
+reason = "deferred to Phase 6"
+why = "flag surface for a future opencode adapter"
