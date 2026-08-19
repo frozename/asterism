@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { promisify } from 'node:util';
 import { adapters } from '../src/adapters/index.js';
+import { loadVerb } from '../src/cli/router.js';
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -55,6 +56,35 @@ test('a name that fails the verb regex exits 2 without loading anything outside 
     assert.equal(code, 2, `${args.join(' ')} should exit 2`);
     assert.equal(stdout, '');
   }
+});
+
+// '../version' and '..' above fail the guard on character class alone (they
+// contain '.' and '/', which the real regex never allows) whether or not the
+// guard defends against traversal specifically. '../verbs/version' resolves
+// through path.join to the real src/cli/verbs/version.js -- src/cli/verbs/../verbs/version.js
+// -- so this probe only passes if the guard is actually doing its job.
+test('a traversal probe that resolves to a real existing verb through .. is still rejected', async () => {
+  const { code, stdout, stderr } = await runAst(['../verbs/version']);
+  assert.equal(code, 2);
+  assert.equal(stdout, '');
+  assert.match(stderr.toLowerCase(), /usage/);
+});
+
+test('router.loadVerb propagates a syntax error from a real verb module instead of swallowing it', async () => {
+  const verbsDir = mkdtempSync(path.join(os.tmpdir(), 'ast-router-verbs-'));
+  writeFileSync(path.join(verbsDir, 'broken.js'), 'export const mutating = false; this is not valid js(((\n');
+  writeFileSync(
+    path.join(verbsDir, 'ok.js'),
+    'export const mutating = false;\nexport async function run() { return 0; }\n',
+  );
+
+  await assert.rejects(() => loadVerb('broken', verbsDir));
+
+  const ok = await loadVerb('ok', verbsDir);
+  assert.equal(typeof ok.run, 'function');
+
+  assert.equal(await loadVerb('nope', verbsDir), null);
+  assert.equal(await loadVerb('../verbs/version', verbsDir), null, 'a name failing VERB_NAME must never reach import');
 });
 
 test('bin/ast source contains no vendor literal', () => {

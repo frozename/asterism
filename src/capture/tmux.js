@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { procexec } from '../io/procexec.js';
 
@@ -72,16 +73,26 @@ async function checkTmux(env, exec) {
   return { ok: true, version: version.raw };
 }
 
-async function runCell(cell, { env }, exec = procexec) {
+async function querySocketPath(env, pid, exec) {
+  const client = ['tmux', '-u', '-L', socketLabel(pid)];
+  const result = await exec([...client, 'display-message', '-p', '#{socket_path}'], { env });
+  return result.stdout.toString('utf8').trim();
+}
+
+// exec and fsExists are injectable so a test can drive this without a real
+// tmux server or a real socket file on disk.
+export async function runCell(cell, { env }, exec = procexec, fsExists = existsSync) {
   const availability = await checkTmux(env, exec);
   if (!availability.ok) return { ok: false, message: availability.message };
 
   const pid = process.pid;
   const plan = buildTmuxPlan(cell, pid);
   let capture;
+  let socketPath = null;
 
   try {
     await exec(plan[0], { env });
+    socketPath = await querySocketPath(env, pid, exec);
 
     let cursor = 1;
     if (PANE_CONTENT_CELLS.has(cell)) {
@@ -95,10 +106,17 @@ async function runCell(cell, { env }, exec = procexec) {
     await exec(plan[plan.length - 1], { env }).catch(() => {});
   }
 
+  if (socketPath && fsExists(socketPath)) {
+    return {
+      ok: false,
+      message: `tmux socket "${socketPath}" still exists after kill-server -- refusing to record the capture`,
+    };
+  }
+
   return {
     ok: true,
     text: capture.stdout.toString('utf8'),
-    command: plan[plan.length - 2].join(' '),
+    command: plan[plan.length - 2],
     version: availability.version,
   };
 }

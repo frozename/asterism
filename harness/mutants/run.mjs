@@ -10,7 +10,8 @@ import { MUTANTS } from './mutants.mjs';
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const COPY_ENTRIES = Object.freeze(['bin', 'src', 'harness', 'test', 'package.json', 'fixtures']);
+const REQUIRED_COPY_ENTRIES = Object.freeze(['bin', 'src', 'harness', 'test', 'package.json']);
+const OPTIONAL_COPY_ENTRIES = Object.freeze(['fixtures']);
 const TAIL_LINES = 40;
 
 export async function runMutant(mutant, { repoRoot }) {
@@ -96,8 +97,20 @@ function unclaimedDetail(mutant, repoRoot) {
   return null;
 }
 
-async function copyTree(repoRoot, destRoot) {
-  for (const entry of COPY_ENTRIES) {
+// A required entry missing from repoRoot means the tree the runner is about
+// to mutate and test isn't the real repo -- silently skipping it would run
+// every mutant's claiming test against a truncated copy and "kill" it for
+// the wrong reason. fixtures/ is the one entry allowed to be absent.
+export async function copyTree(repoRoot, destRoot) {
+  for (const entry of REQUIRED_COPY_ENTRIES) {
+    const source = path.join(repoRoot, entry);
+    if (!existsSync(source)) {
+      throw new Error(`copyTree: required entry "${entry}" is missing under ${repoRoot}`);
+    }
+    await cp(source, path.join(destRoot, entry), { recursive: true });
+  }
+
+  for (const entry of OPTIONAL_COPY_ENTRIES) {
     const source = path.join(repoRoot, entry);
     if (!existsSync(source)) continue;
     await cp(source, path.join(destRoot, entry), { recursive: true });

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import test from 'node:test';
 import { MUTANTS } from '../harness/mutants/mutants.mjs';
-import { runAll, runMutant } from '../harness/mutants/run.mjs';
+import { copyTree, runAll, runMutant } from '../harness/mutants/run.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MUTANT_ID = /^MUT-[A-Z0-9-]+$/;
@@ -102,5 +103,45 @@ if (Object.hasOwn(process.env, 'ASTERISM_MUTANT_RUN')) {
 
     const result = await runMutant(synthetic, { repoRoot: ROOT });
     assert.equal(result.outcome, 'survived', `expected survived, got ${result.outcome}: ${result.detail ?? ''}`);
+  });
+
+  test('copyTree throws when a required entry is missing, instead of silently running a truncated copy', async () => {
+    const src = await mkdtemp(path.join(os.tmpdir(), 'asterism-copytree-src-'));
+    const dest = await mkdtemp(path.join(os.tmpdir(), 'asterism-copytree-dest-'));
+
+    try {
+      await mkdir(path.join(src, 'bin'));
+      await mkdir(path.join(src, 'src'));
+      await mkdir(path.join(src, 'harness'));
+      // 'test' is deliberately missing
+      await writeFile(path.join(src, 'package.json'), '{}');
+
+      await assert.rejects(() => copyTree(src, dest), /required entry "test" is missing/);
+    } finally {
+      await rm(src, { recursive: true, force: true });
+      await rm(dest, { recursive: true, force: true });
+    }
+  });
+
+  test('copyTree control: every required entry present, fixtures/ absent, copy succeeds without it', async () => {
+    const src = await mkdtemp(path.join(os.tmpdir(), 'asterism-copytree-src-'));
+    const dest = await mkdtemp(path.join(os.tmpdir(), 'asterism-copytree-dest-'));
+
+    try {
+      for (const entry of ['bin', 'src', 'harness', 'test']) {
+        await mkdir(path.join(src, entry));
+      }
+      await writeFile(path.join(src, 'package.json'), '{}');
+
+      await copyTree(src, dest);
+
+      for (const entry of ['bin', 'src', 'harness', 'test', 'package.json']) {
+        assert.ok(existsSync(path.join(dest, entry)), `${entry} should have been copied`);
+      }
+      assert.equal(existsSync(path.join(dest, 'fixtures')), false, 'fixtures/ was never present, so it must stay absent');
+    } finally {
+      await rm(src, { recursive: true, force: true });
+      await rm(dest, { recursive: true, force: true });
+    }
   });
 }

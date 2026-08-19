@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,6 +34,14 @@ test('fixtures/MANIFEST.toml exists and parses', () => {
 test('manifest schema is 1', () => {
   assert.ok(manifest, 'manifest failed to load; see the prior test');
   assert.equal(manifest.manifest?.schema, 1);
+});
+
+test('the manifest has at least one cell', () => {
+  assert.ok(manifest?.cells, 'manifest.cells is missing');
+  assert.ok(
+    Object.keys(manifest.cells).length > 0,
+    'manifest.cells is empty; a zero-cell manifest must fail closed, not read as 0/0 captured',
+  );
 });
 
 test('every cell id matches the cell-id grammar', () => {
@@ -154,6 +162,8 @@ test('verifyCapturedCell control: sha mismatch is reported, a matching capture p
 
   const match = verifyCapturedCell(dir, cellId);
   assert.equal(match.ok, true, match.ok ? undefined : match.reason);
+
+  rmSync(tmp, { recursive: true, force: true });
 });
 
 function registerCellTest(id, cell) {

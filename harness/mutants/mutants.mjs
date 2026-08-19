@@ -97,11 +97,11 @@ export const MUTANTS = Object.freeze([
   }),
   Object.freeze({
     id: 'MUT-VERB-REGEX',
-    file: 'bin/ast',
-    find: `  if (!VERB_NAME.test(verbName)) return null;`,
-    replace: `  if (VERB_NAME.test(verbName)) return null;`,
+    file: 'src/cli/router.js',
+    find: `export const VERB_NAME = /^[a-z][a-z0-9-]*$/;`,
+    replace: `export const VERB_NAME = /^[a-z0-9.\\/-]+$/;`,
     claimedBy: Object.freeze(['test/cli.test.mjs']),
-    why: 'flipping the verb-name guard\'s negation lets a name like ".." or "/" through while rejecting real verbs -- the appended ".js" suffix keeps this repo\'s two traversal probes ("..", "../version") from resolving to any file either way, so the observable kill comes from legitimate verbs (e.g. "version") now being rejected, not from a successful traversal',
+    why: 'loosening the verb-name regex to accept "." and "/" lets a name like "../verbs/version" pass the guard and resolve through path.join to the real src/cli/verbs/version.js -- test/cli.test.mjs pins this with an "ast ../verbs/version" probe that must still exit 2 with empty stdout, which only holds if the guard rejects the traversal rather than letting it load and run a real verb',
   }),
   Object.freeze({
     id: 'MUT-SCAN-CASE',

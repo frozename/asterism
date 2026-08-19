@@ -31,7 +31,7 @@ export function resolveRecipe(cellId) {
   return recipe ? { recipe, kind: 'adapter', adapter } : null;
 }
 
-export async function captureCell(cellId, { home, env, cwd, repoRoot, provokedBy = '' }) {
+export async function captureCell(cellId, { home, env, cwd, repoRoot, provokedBy = '', fromPath }) {
   if (!CELL_ID_PATTERN.test(cellId)) {
     return { ok: false, exitCode: 2, message: `invalid cell id "${cellId}"` };
   }
@@ -46,6 +46,19 @@ export async function captureCell(cellId, { home, env, cwd, repoRoot, provokedBy
   }
 
   const { recipe, kind, adapter } = resolved;
+  const isManual = recipe.source === 'manual';
+
+  if (fromPath !== undefined && !isManual) {
+    return { ok: false, exitCode: 2, message: 'only manual cells take --from' };
+  }
+  if (isManual && fromPath === undefined) {
+    return {
+      ok: false,
+      exitCode: 2,
+      message: `manual cell "${cellId}" requires --from <path>: ${recipe.provoke}`,
+    };
+  }
+
   let text;
   let command;
   let cliVersion = null;
@@ -72,6 +85,10 @@ export async function captureCell(cellId, { home, env, cwd, repoRoot, provokedBy
       const result = await readFileSource(recipe, home);
       text = result.text;
       command = result.command;
+    } else if (recipe.source === 'manual') {
+      const result = await readManualSource(fromPath);
+      text = result.text;
+      command = result.command;
     } else {
       return { ok: false, exitCode: 1, message: `recipe "${cellId}" has unknown source "${recipe.source}"` };
     }
@@ -84,23 +101,27 @@ export async function captureCell(cellId, { home, env, cwd, repoRoot, provokedBy
     return { ok: false, exitCode: 1, message: `capture of "${cellId}" produced 0 bytes -- state was not provoked` };
   }
 
-  const { text: scrubbedText, redactions } = scrub(text, { home, extraRoots: [repoRoot] });
+  const scrubOpts = { home, extraRoots: [repoRoot] };
+  const { text: scrubbedText, redactions } = scrub(text, scrubOpts);
   const raw = Buffer.from(scrubbedText, 'utf8');
   const sha256 = createHash('sha256').update(raw).digest('hex');
 
-  const meta = {
-    cell: cellId,
-    sha256,
-    bytes: raw.length,
-    capturedAt: new Date().toISOString(),
-    provokedBy,
-    command,
-    cliVersion,
-    tmuxVersion,
-    profileHash,
-    redactions,
-    kills: [],
-  };
+  const meta = scrubMetaStrings(
+    {
+      cell: cellId,
+      sha256,
+      bytes: raw.length,
+      capturedAt: new Date().toISOString(),
+      provokedBy,
+      command,
+      cliVersion,
+      tmuxVersion,
+      profileHash,
+      redactions,
+      kills: [],
+    },
+    scrubOpts,
+  );
 
   const cellDir = path.join(cwd, 'fixtures', ...cellId.split('/'));
   await writeCellAtomic(cellDir, raw, meta);
@@ -131,6 +152,11 @@ async function readFileSource(recipe, home) {
   return { text: parts.join(''), command: `read ${pattern}` };
 }
 
+async function readManualSource(fromPath) {
+  const text = await readFile(fromPath, 'utf8');
+  return { text, command: ['read', fromPath] };
+}
+
 function globToRegExp(pattern) {
   const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
   return new RegExp(`^${escaped}$`);
@@ -156,6 +182,25 @@ async function resolveProfileHash(adapter, home) {
   } catch {
     return 'absent';
   }
+}
+
+// sha256 and profileHash are hex digests, not free text -- scrubbing them
+// would flag their own hex-ness as a leak and corrupt the identity value a
+// caller verifies byte-exact, so they're the one thing this walk skips.
+const UNSCRUBBED_META_FIELDS = new Set(['sha256', 'profileHash']);
+
+function scrubMetaStrings(meta, opts) {
+  const scrubbed = {};
+  for (const [key, value] of Object.entries(meta)) {
+    scrubbed[key] = UNSCRUBBED_META_FIELDS.has(key) ? value : scrubValue(value, opts);
+  }
+  return scrubbed;
+}
+
+function scrubValue(value, opts) {
+  if (typeof value === 'string') return scrub(value, opts).text;
+  if (Array.isArray(value)) return value.map((item) => scrubValue(item, opts));
+  return value;
 }
 
 async function writeCellAtomic(cellDir, raw, meta) {

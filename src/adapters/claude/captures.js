@@ -65,4 +65,46 @@ export const captures = Object.freeze([
     file: sessionsGlob,
     cliVersionArgv: CLI_VERSION_ARGV,
   }),
+  Object.freeze({
+    cell: 'claude/hook/session-start',
+    provoke:
+      'configure a session-start hook that copies its stdin payload to a file of your choosing, trigger a live session start, then pass that file with --from',
+    source: 'manual',
+    cliVersionArgv: CLI_VERSION_ARGV,
+  }),
+  Object.freeze({
+    cell: 'claude/transcript',
+    provoke:
+      "let a live session accumulate turns, copy the session's own transcript file (wherever the CLI keeps it) to a file of your choosing, then pass that file with --from",
+    source: 'manual',
+    cliVersionArgv: CLI_VERSION_ARGV,
+  }),
+  Object.freeze({
+    cell: 'claude/screen/permission-prompt',
+    provoke:
+      'provoke a live tool-use permission prompt, run `tmux capture-pane -p -e` on the pane showing it, save the output to a file, then pass that file with --from',
+    source: 'manual',
+    cliVersionArgv: CLI_VERSION_ARGV,
+  }),
+  Object.freeze({
+    cell: 'claude/screen/picker',
+    provoke:
+      'open a live model or session picker, run `tmux capture-pane -p -e` on the pane showing it, save the output to a file, then pass that file with --from',
+    source: 'manual',
+    cliVersionArgv: CLI_VERSION_ARGV,
+  }),
+  Object.freeze({
+    cell: 'claude/screen/trust-gate',
+    provoke:
+      'start from a fresh config to reach the first-run trust gate, run `tmux capture-pane -p -e` on the pane showing it, save the output to a file, then pass that file with --from',
+    source: 'manual',
+    cliVersionArgv: CLI_VERSION_ARGV,
+  }),
+  Object.freeze({
+    cell: 'claude/screen/narrow',
+    provoke:
+      'resize a live session to a narrow column count, run `tmux capture-pane -p -e` on the pane, save the output to a file, then pass that file with --from',
+    source: 'manual',
+    cliVersionArgv: CLI_VERSION_ARGV,
+  }),
 ]);

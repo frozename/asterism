@@ -22,13 +22,13 @@ export async function run(argv, ctx) {
 
 function printUsage() {
   process.stderr.write(
-    'usage: ast fixture capture <cell-id> [--provoked-by "<text>"] [--home <dir>]\n' +
+    'usage: ast fixture capture <cell-id> [--provoked-by "<text>"] [--home <dir>] [--from <path>]\n' +
       '       ast fixture list\n',
   );
 }
 
 async function runCapture(rest, ctx) {
-  const { cellId, provokedBy, home: homeFlag } = parseArgs(rest);
+  const { cellId, provokedBy, home: homeFlag, from } = parseArgs(rest);
 
   if (cellId === undefined) {
     printUsage();
@@ -54,6 +54,7 @@ async function runCapture(rest, ctx) {
     cwd: process.cwd(),
     repoRoot: ctx.root,
     provokedBy: provokedBy ?? '',
+    fromPath: from,
   });
 
   if (!result.ok) {
@@ -71,6 +72,7 @@ function parseArgs(args) {
   let cellId;
   let provokedBy;
   let home;
+  let from;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -80,10 +82,13 @@ function parseArgs(args) {
     } else if (arg === '--home') {
       home = args[index + 1];
       index += 1;
+    } else if (arg === '--from') {
+      from = args[index + 1];
+      index += 1;
     } else if (cellId === undefined) {
       cellId = arg;
     }
   }
 
-  return { cellId, provokedBy, home };
+  return { cellId, provokedBy, home, from };
 }

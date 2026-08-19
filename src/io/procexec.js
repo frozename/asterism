@@ -69,6 +69,7 @@ export async function procexec(argv, options = {}) {
         stdout: Buffer.concat(stdoutChunks),
         stderr: Buffer.concat(stderrChunks),
         timedOut,
+        truncated: killedForSize,
       });
     });
   });

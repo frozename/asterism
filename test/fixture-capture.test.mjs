@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { promisify } from 'node:util';
-import { buildTmuxPlan, socketLabel } from '../src/capture/tmux.js';
+import { adapters } from '../src/adapters/index.js';
+import { buildTmuxPlan, runCell, socketLabel } from '../src/capture/tmux.js';
+import { findLeaks } from '../src/core/scrub.js';
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -17,6 +19,8 @@ const REGISTRY_IDLE_CELL = 'claude/registry/idle'; // quarantine-exempt: real re
 const REGISTRY_BUSY_CELL = 'claude/registry/busy'; // quarantine-exempt: real registered cell id this test captures end to end.
 const HELP_CELL = 'claude/help'; // quarantine-exempt: real registered cell id asserted in `ast fixture list` output.
 const ADAPTER_CONFIG_DIRNAME = '.claude'; // quarantine-exempt: real config dirname the file-source recipe under test reads.
+const FAKE_ADAPTER_CLI_VERSION = '0.0.0-fake-fixture-capture';
+const ADAPTER_CLI_EXECUTABLE_NAME = 'claude'; // quarantine-exempt: must match CLI_VERSION_ARGV's argv[0] in src/adapters/claude/captures.js.
 
 async function runAst(args, { cwd, env }) {
   try {
@@ -27,8 +31,21 @@ async function runAst(args, { cwd, env }) {
   }
 }
 
+// A fake adapter-CLI executable on the front of PATH, so any cliVersionArgv
+// resolution during a test resolves to this deterministic stand-in instead
+// of the real CLI installed on the developer's machine. The rest of the real
+// PATH stays behind it so node/bun and everything else still resolves
+// normally -- only the shadowed executable name changes.
+function makeFakeAdapterCliBin() {
+  const binDir = mkdtempSync(path.join(os.tmpdir(), 'ast-fake-adapter-cli-bin-'));
+  const executablePath = path.join(binDir, ADAPTER_CLI_EXECUTABLE_NAME);
+  writeFileSync(executablePath, `#!/bin/sh\necho "${FAKE_ADAPTER_CLI_VERSION}"\n`);
+  chmodSync(executablePath, 0o755);
+  return binDir;
+}
+
 function baseEnv(home) {
-  return { PATH: process.env.PATH ?? '', HOME: home, TERM: 'dumb', LANG: 'C' };
+  return { PATH: `${makeFakeAdapterCliBin()}:${process.env.PATH ?? ''}`, HOME: home, TERM: 'dumb', LANG: 'C' };
 }
 
 function makeTempHome() {
@@ -39,6 +56,17 @@ function makeCwdWithFixtures() {
   const cwd = mkdtempSync(path.join(os.tmpdir(), 'ast-fixture-cwd-'));
   mkdirSync(path.join(cwd, 'fixtures'));
   return cwd;
+}
+
+// Discovered from the registry, not spelled out, so this file never has to
+// name a vendor to exercise the manual-source capture path.
+function findManualRecipe() {
+  for (const adapter of adapters.values()) {
+    if (!adapter.captures) continue;
+    const found = adapter.captures.find((recipe) => recipe.source === 'manual');
+    if (found) return found;
+  }
+  return null;
 }
 
 test('captures a file-source cell, scrubs it, and writes raw + meta.json relative to cwd', async () => {
@@ -71,6 +99,7 @@ test('captures a file-source cell, scrubs it, and writes raw + meta.json relativ
   assert.equal(meta.sha256, createHash('sha256').update(raw).digest('hex'));
   assert.equal(meta.bytes, raw.length);
   assert.equal(meta.provokedBy, 'test fixture');
+  assert.equal(meta.cliVersion, FAKE_ADAPTER_CLI_VERSION, 'cliVersion should come from the fake PATH executable, never the installed one');
   assert.ok(Array.isArray(meta.redactions));
   assert.ok(meta.redactions.length > 0, 'expected the fake user path and uuid to be redacted');
   assert.deepEqual(meta.kills, []);
@@ -83,6 +112,38 @@ test('captures a file-source cell, scrubs it, and writes raw + meta.json relativ
 
   assert.equal(raw.includes(fakeUserPath), false);
   assert.equal(raw.includes(fakeUuid), false);
+});
+
+test('a file-source capture scrubs meta.json string fields so the raw home path never survives', async () => {
+  const home = makeTempHome();
+  const sessionsDir = path.join(home, ADAPTER_CONFIG_DIRNAME, 'sessions');
+  mkdirSync(sessionsDir, { recursive: true });
+  writeFileSync(path.join(sessionsDir, '111.json'), JSON.stringify({ id: '111' }));
+
+  const cwd = makeCwdWithFixtures();
+  const { code } = await runAst(['fixture', 'capture', REGISTRY_IDLE_CELL, '--home', home], {
+    cwd,
+    env: baseEnv(home),
+  });
+  assert.equal(code, 0);
+
+  const cellDir = path.join(cwd, 'fixtures', ...REGISTRY_IDLE_CELL.split('/'));
+  const metaText = readFileSync(path.join(cellDir, 'meta.json'), 'utf8');
+  const meta = JSON.parse(metaText);
+
+  assert.equal(metaText.includes(home), false, 'meta.json must not contain the raw home path');
+  // The temp home itself may live under a tmp-shaped path (e.g. macOS
+  // /var/folders/...), so the placeholder kind can be <home> or <tmppath>
+  // depending on which pattern wins the longest-match overlap in scrub.js;
+  // either way the point is that it's a placeholder, not the raw path.
+  assert.match(meta.command, /^read </, 'the command field should carry a scrubbed placeholder, not the real home');
+
+  // sha256 and profileHash are legitimate hex digests, not leaks, so this
+  // only checks the path-shaped kinds a home-directory leak would produce.
+  const pathLeaks = findLeaks(metaText, { home, extraRoots: [] }).filter((leak) =>
+    ['home', 'userpath', 'tmppath'].includes(leak.kind),
+  );
+  assert.deepEqual(pathLeaks, [], `meta.json leaks the home path: ${JSON.stringify(pathLeaks)}`);
 });
 
 test('an unknown cell exits 2', async () => {
@@ -124,6 +185,73 @@ test('an empty capture exits 1', async () => {
   assert.match(stderr, /0 bytes/);
 });
 
+test('a manual cell captured with --from reads the given file, scrubs it, and records an array read command', async () => {
+  const recipe = findManualRecipe();
+  assert.ok(recipe, 'expected at least one manual-source capture recipe registered');
+
+  const home = makeTempHome();
+  const cwd = makeCwdWithFixtures();
+  const fromDir = mkdtempSync(path.join(os.tmpdir(), 'ast-manual-from-'));
+  const fromFile = path.join(fromDir, 'manual-capture-input.txt');
+
+  const fakeUserPath = '/Users/fixture-fake-user/project/thing.js';
+  const fakeUuid = '6f9619ff-8b86-d011-b42d-00c04fc964ff';
+  writeFileSync(fromFile, `provoked artefact mentioning ${fakeUserPath} and ${fakeUuid}\n`);
+
+  const { code, stderr } = await runAst(['fixture', 'capture', recipe.cell, '--home', home, '--from', fromFile], {
+    cwd,
+    env: baseEnv(home),
+  });
+
+  assert.equal(code, 0, `expected exit 0, got ${code}; stderr: ${stderr}`);
+
+  const cellDir = path.join(cwd, 'fixtures', ...recipe.cell.split('/'));
+  const raw = readFileSync(path.join(cellDir, 'raw'));
+  const metaText = readFileSync(path.join(cellDir, 'meta.json'), 'utf8');
+  const meta = JSON.parse(metaText);
+
+  assert.ok(Array.isArray(meta.redactions));
+  assert.ok(meta.redactions.length > 0, 'expected the fake user path and uuid to be redacted');
+  assert.ok(Array.isArray(meta.command), 'manual capture command should be recorded as an array');
+  assert.equal(meta.command[0], 'read');
+  assert.equal(metaText.includes(home), false, 'meta.json must not contain the raw home path');
+  assert.equal(raw.includes(fakeUserPath), false);
+  assert.equal(raw.includes(fakeUuid), false);
+});
+
+test('a manual cell captured without --from exits 2 and names the flag and the recipe provoke text', async () => {
+  const recipe = findManualRecipe();
+  assert.ok(recipe, 'expected at least one manual-source capture recipe registered');
+
+  const home = makeTempHome();
+  const cwd = makeCwdWithFixtures();
+
+  const { code, stderr } = await runAst(['fixture', 'capture', recipe.cell, '--home', home], {
+    cwd,
+    env: baseEnv(home),
+  });
+
+  assert.equal(code, 2);
+  assert.match(stderr, /--from/);
+  assert.ok(stderr.includes(recipe.provoke), 'stderr should quote the recipe\'s provoke text');
+});
+
+test('--from given for a non-manual cell exits 2', async () => {
+  const home = makeTempHome();
+  const cwd = makeCwdWithFixtures();
+  const fromDir = mkdtempSync(path.join(os.tmpdir(), 'ast-manual-from-'));
+  const fromFile = path.join(fromDir, 'unused-input.txt');
+  writeFileSync(fromFile, 'unused\n');
+
+  const { code, stderr } = await runAst(['fixture', 'capture', HELP_CELL, '--home', home, '--from', fromFile], {
+    cwd,
+    env: baseEnv(home),
+  });
+
+  assert.equal(code, 2);
+  assert.match(stderr, /--from/);
+});
+
 test('ast fixture list exits 0 and lists known cells', async () => {
   const home = makeTempHome();
   const cwd = makeCwdWithFixtures();
@@ -149,4 +277,30 @@ test('tmux argv plans use a hermetic asterism- socket, -u, -f /dev/null, ending 
     const last = plan[plan.length - 1];
     assert.equal(last[last.length - 1], 'kill-server', 'the plan must end with kill-server');
   }
+});
+
+function fakeTmuxExec({ socketPath = '/tmp/fake-asterism-socket', paneOutput = 'pane-output\n' } = {}) {
+  return async (argv) => {
+    if (argv.includes('-V')) return { stdout: Buffer.from('tmux 3.7\n') };
+    if (argv.includes('display-message')) return { stdout: Buffer.from(`${socketPath}\n`) };
+    if (argv.includes('list-panes')) return { stdout: Buffer.from(paneOutput) };
+    return { stdout: Buffer.from('') };
+  };
+}
+
+test('runCell refuses to record the capture when the socket file survives kill-server', async () => {
+  const exec = fakeTmuxExec();
+  const result = await runCell('tmux/list-panes', { env: {} }, exec, () => true);
+
+  assert.equal(result.ok, false);
+  assert.match(result.message, /socket/);
+});
+
+test('runCell succeeds and records command as an argv array once the socket is gone (control pair)', async () => {
+  const exec = fakeTmuxExec();
+  const result = await runCell('tmux/list-panes', { env: {} }, exec, () => false);
+
+  assert.equal(result.ok, true);
+  assert.ok(Array.isArray(result.command), 'command should be recorded as an argv array, not a joined string');
+  assert.equal(result.text, 'pane-output\n');
 });

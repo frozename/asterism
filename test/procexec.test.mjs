@@ -12,6 +12,7 @@ test('runs node -e with an argv array and returns code/stdout', async () => {
   assert.equal(result.code, 7);
   assert.equal(result.stdout.toString('utf8'), 'hello');
   assert.equal(result.timedOut, false);
+  assert.equal(result.truncated, false);
 });
 
 test('rejects a non-array argv', async () => {
@@ -42,4 +43,5 @@ test('kills the child when stdout exceeds maxBytes', async () => {
 
   assert.ok(result.stdout.length >= 4096, 'should have buffered at least up to the cap before being killed');
   assert.notEqual(result.code, 0);
+  assert.equal(result.truncated, true, 'a maxBytes kill should be surfaced in the result');
 });
