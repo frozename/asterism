@@ -1,0 +1,78 @@
+#!/usr/bin/env node
+import { readdir } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { adapters } from '../src/adapters/index.js';
+import { refuseIfAgentInvoked } from '../src/core/refuse.js';
+
+const VERB_NAME = /^[a-z][a-z0-9-]*$/;
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const VERBS_DIR = path.join(ROOT, 'src', 'cli', 'verbs');
+
+async function listVerbs() {
+  let entries;
+  try {
+    entries = await readdir(VERBS_DIR);
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((entry) => entry.endsWith('.js'))
+    .map((entry) => entry.slice(0, -3))
+    .sort();
+}
+
+async function printUsage() {
+  const verbs = await listVerbs();
+  const list = verbs.length > 0 ? verbs.join(', ') : '(none available)';
+  process.stderr.write(
+    `usage: ast <verb> [args...]\n\nRun a verb defined under src/cli/verbs/. Available verbs: ${list}\n`,
+  );
+}
+
+async function loadVerb(verbName) {
+  if (!VERB_NAME.test(verbName)) return null;
+
+  const verbPath = path.join(VERBS_DIR, `${verbName}.js`);
+  try {
+    return await import(pathToFileURL(verbPath).href);
+  } catch {
+    return null;
+  }
+}
+
+async function main(argv) {
+  const [verbName, ...rest] = argv;
+
+  if (typeof verbName !== 'string') {
+    await printUsage();
+    return 2;
+  }
+
+  const verb = await loadVerb(verbName);
+  if (verb === null) {
+    await printUsage();
+    return 2;
+  }
+
+  if (verb.mutating) {
+    const refusal = refuseIfAgentInvoked(process.env, adapters);
+    if (refusal !== null) {
+      process.stderr.write(
+        `ast: refusing to run mutating verb "${verbName}" -- rule ${refusal.rule} ` +
+          `(${refusal.adapter} session marker ${refusal.marker} present in the environment)\n`,
+      );
+      return 1;
+    }
+  }
+
+  const ctx = { env: process.env, adapters, root: ROOT };
+  return verb.run(rest, ctx);
+}
+
+try {
+  process.exitCode = await main(process.argv.slice(2));
+} catch (error) {
+  process.stderr.write(`ast: ${error?.message ?? error}\n`);
+  process.exitCode = 1;
+}
