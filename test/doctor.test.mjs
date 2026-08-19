@@ -8,12 +8,16 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { promisify } from 'node:util';
 import { adapters } from '../src/adapters/index.js';
+import { AXES, UNKNOWN } from '../src/core/caps.js';
 import { CHECKS, runDoctor, STATUS } from '../src/doctor/index.js';
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const AST_BIN = path.join(ROOT, 'bin', 'ast');
 const ID_PATTERN = /^[a-z]+(\.[a-z-]+)+$/;
+
+// The checks that have gone live -- excluded from the "still reports todo" sweep below.
+const LIVE_CHECK_IDS = ['fixtures.manifest', 'probe.capability-unknowns'];
 
 const EXPECTED_TODO_IDS = [
   'state.permissions',
@@ -22,7 +26,6 @@ const EXPECTED_TODO_IDS = [
   'tmux.version-floor',
   'tmux.managed-block-drift',
   'tmux.pipe-pane-occupied',
-  'probe.capability-unknowns',
   'attention.stuck',
   'retention.counts',
   'canary.unknown-fields',
@@ -103,14 +106,14 @@ test('STATUS is frozen and exactly pass/warn/fail/todo', () => {
   assert.deepEqual(STATUS, ['pass', 'warn', 'fail', 'todo']);
 });
 
-test('every check except fixtures.manifest currently reports todo', async () => {
-  const nonManifestIds = CHECKS.filter((check) => check.id !== 'fixtures.manifest')
+test('every check except the live ones currently reports todo', async () => {
+  const todoIds = CHECKS.filter((check) => !LIVE_CHECK_IDS.includes(check.id))
     .map((check) => check.id)
     .sort();
-  assert.deepEqual(nonManifestIds, EXPECTED_TODO_IDS);
+  assert.deepEqual(todoIds, EXPECTED_TODO_IDS);
 
   for (const check of CHECKS) {
-    if (check.id === 'fixtures.manifest') continue;
+    if (LIVE_CHECK_IDS.includes(check.id)) continue;
     const result = await check.run({ root: '/unused', home: '/unused', env: {} });
     assert.equal(result.status, 'todo', `${check.id} should still report todo`);
   }
@@ -324,6 +327,64 @@ why = "cannot verify"
     result.detail,
     '1/1 captured, 0 manual pending, 0 stale; cannot verify version: tmux/list-panes',
   );
+});
+
+// ---- probe.capability-unknowns ----
+
+const capabilityCheck = CHECKS.find((check) => check.id === 'probe.capability-unknowns');
+
+function fullCapabilityRecord() {
+  const record = {};
+  for (const axis of Object.keys(AXES)) {
+    record[axis] = {
+      value: AXES[axis][0],
+      evidence: { grade: 'C', probe: `synthetic probe for ${axis}`, observedOn: '2026-01-01' },
+    };
+  }
+  return record;
+}
+
+test('probe.capability-unknowns: no unknowns across a synthetic registry passes', async () => {
+  const registry = new Map([['synth', { id: 'synth', capabilities: fullCapabilityRecord() }]]);
+  const result = await capabilityCheck.run({ registry, env: {} });
+  assert.equal(result.status, 'pass');
+  assert.equal(result.detail, 'no unknown axes across 1 adapters');
+});
+
+test('probe.capability-unknowns: a non-gated unknown warns, naming the adapter, axis, deferral, and probe', async () => {
+  const record = fullCapabilityRecord();
+  record.transcript = { value: UNKNOWN, evidence: { probe: 'a probe for transcript', deferredTo: 'Phase 3' } };
+  const registry = new Map([['synth', { id: 'synth', capabilities: record }]]);
+
+  const result = await capabilityCheck.run({ registry, env: {} });
+  assert.equal(result.status, 'warn');
+  assert.ok(result.detail.includes('synth.transcript'), result.detail);
+  assert.ok(result.detail.includes('Phase 3'), result.detail);
+  assert.ok(result.detail.includes('a probe for transcript'), result.detail);
+});
+
+test('probe.capability-unknowns: a gated unknown fails', async () => {
+  const record = fullCapabilityRecord();
+  record.identity = { value: UNKNOWN, evidence: { probe: 'a probe for identity', deferredTo: 'Phase 1' } };
+  const registry = new Map([['synth', { id: 'synth', capabilities: record }]]);
+
+  const result = await capabilityCheck.run({ registry, env: {} });
+  assert.equal(result.status, 'fail');
+  assert.ok(result.detail.includes('synth.identity'), result.detail);
+});
+
+test('probe.capability-unknowns: an invalid record fails', async () => {
+  const record = fullCapabilityRecord();
+  delete record.identity;
+  const registry = new Map([['synth', { id: 'synth', capabilities: record }]]);
+
+  const result = await capabilityCheck.run({ registry, env: {} });
+  assert.equal(result.status, 'fail');
+});
+
+test('probe.capability-unknowns: with ctx.registry absent and env {} it does not throw and returns a known status', async () => {
+  const result = await capabilityCheck.run({ env: {} });
+  assert.ok(STATUS.includes(result.status));
 });
 
 // ---- CLI wiring ----

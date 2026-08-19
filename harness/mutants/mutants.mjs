@@ -111,4 +111,28 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/secret-scan-normalizer.test.mjs']),
     why: 'a case-sensitive scanner misses a secret pasted with different capitalization',
   }),
+  Object.freeze({
+    id: 'MUT-REGISTRY-IGNORES-ENV',
+    file: 'src/adapters/index.js',
+    find: `  if (typeof env.ASTERISM_FAKE_ROOT === 'string' && env.ASTERISM_FAKE_ROOT.length > 0) {\n    registry.set(fake.id, fake);\n  }\n\n  return registry;`,
+    replace: `  return registry;`,
+    claimedBy: Object.freeze(['test/adapter-conformance.test.mjs']),
+    why: 'a registry that ignores its env argument silently strands the conformance suite at one adapter and a seam with a single implementation rots unnoticed',
+  }),
+  Object.freeze({
+    id: 'MUT-UNKNOWN-AT-LEAST',
+    file: 'src/core/caps.js',
+    find: `  return valueRank <= floorRank;`,
+    replace: `  return value === UNKNOWN ? true : valueRank <= floorRank;`,
+    claimedBy: Object.freeze(['test/caps.test.mjs']),
+    why: 'an unknown capability must never satisfy a floor -- a feature gating on atLeast() must fail closed when the axis was never probed',
+  }),
+  Object.freeze({
+    id: 'MUT-UNKNOWN-UNPROBED',
+    file: 'src/core/caps.js',
+    find: `      if (typeof evidence.probe !== 'string' || evidence.probe.length === 0) {\n        throw new Error(\`caps: axis "\${axis}" unknown evidence is missing a non-empty probe\`);\n      }\n      if (typeof evidence.deferredTo !== 'string' || evidence.deferredTo.length === 0) {\n        throw new Error(\`caps: axis "\${axis}" unknown evidence is missing deferredTo\`);\n      }`,
+    replace: '',
+    claimedBy: Object.freeze(['test/caps.test.mjs']),
+    why: 'an unknown axis with no probe and no deferral gives doctor nothing to name -- validateRecord must reject it',
+  }),
 ]);

@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { buildRegistry } from '../adapters/index.js';
 import { resolveRecipe } from '../capture/run.js';
+import { GATED_AXES_BY_PHASE, unknownAxes, validateRecord } from '../core/caps.js';
 import { parseToml } from '../core/toml.js';
 import { procexec } from '../io/procexec.js';
 
@@ -134,6 +136,37 @@ async function checkFixturesManifest({ root, env }) {
   return { status: overall, detail };
 }
 
+async function checkCapabilityUnknowns(ctx) {
+  const registry = ctx.registry ?? buildRegistry(ctx.env ?? {});
+  const gatedAxes = GATED_AXES_BY_PHASE[1];
+
+  const clauses = [];
+  let hasGatedUnknown = false;
+  let adapterCount = 0;
+
+  for (const adapter of registry.values()) {
+    adapterCount += 1;
+
+    let record;
+    try {
+      record = validateRecord(adapter.capabilities);
+    } catch (error) {
+      return { status: 'fail', detail: `${adapter.id}: invalid capability record — ${error.message}` };
+    }
+
+    for (const entry of unknownAxes(record)) {
+      if (gatedAxes.includes(entry.axis)) hasGatedUnknown = true;
+      clauses.push(`${adapter.id}.${entry.axis} unknown — deferred to ${entry.deferredTo}; resolve with: ${entry.probe}`);
+    }
+  }
+
+  if (clauses.length === 0) {
+    return { status: 'pass', detail: `no unknown axes across ${adapterCount} adapters` };
+  }
+
+  return { status: hasGatedUnknown ? 'fail' : 'warn', detail: clauses.join('; ') };
+}
+
 export const CHECKS = Object.freeze([
   Object.freeze({
     id: 'state.permissions',
@@ -173,7 +206,7 @@ export const CHECKS = Object.freeze([
   Object.freeze({
     id: 'probe.capability-unknowns',
     prevents: 'a feature gating its behavior on a capability axis nobody has actually probed.',
-    run: () => todo(4),
+    run: checkCapabilityUnknowns,
   }),
   Object.freeze({
     id: 'attention.stuck',
