@@ -240,6 +240,10 @@ why = "present"
 
 test('fixtures.manifest: a manual cell older than maxAgeDays is stale and fails', async () => {
   const root = tmpDir('ast-doctor-manifest-stale-age-');
+  // An explicitly empty PATH, not an absent one: with PATH unset the spawn falls back to the
+  // platform default search path, which finds a real tmux on a Linux runner and turns this
+  // into a version-drift case instead of the unverifiable one the assertion below pins.
+  const emptyBin = tmpDir('ast-doctor-stale-age-empty-bin-');
   writeManifest(
     root,
     `
@@ -255,7 +259,7 @@ why = "ancient"
   );
   writeCell(root, 'tmux/list-panes', 'stale content\n', { capturedAt: new Date(0).toISOString() });
 
-  const result = await manifestCheck.run({ root, home: root, env: {} });
+  const result = await manifestCheck.run({ root, home: root, env: { PATH: emptyBin } });
   assert.equal(result.status, 'fail');
   assert.equal(
     result.detail,
