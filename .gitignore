@@ -1,0 +1,22 @@
+# --- Untracked working files. Append-only: regenerating this file silently drops these rules. ---
+private/
+*.PRIVATE.md
+
+# Generated output from local tooling.
+docs/notes/
+
+# --- Standard ---
+node_modules/
+dist/
+build/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+coverage/
+.tmp/
+
+# Claude Code local-only settings (never publish personal allowlists)
+.claude/settings.local.json
+/docs/
