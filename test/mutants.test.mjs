@@ -52,7 +52,7 @@ if (Object.hasOwn(process.env, 'ASTERISM_MUTANT_RUN')) {
     }
   });
 
-  test('runAll kills every curated mutant', async (t) => {
+  test('runAll kills every curated mutant', { timeout: 300000 }, async (t) => {
     const { results, summary } = await runAll({ repoRoot: ROOT });
 
     for (const result of results) {
