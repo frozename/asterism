@@ -143,7 +143,11 @@ export async function run(argv, ctx) {
     });
     const nextIdentity = manifestBytes(manifest);
     if (existingIdentity === null || !existingIdentity.equals(nextIdentity)) {
-      printInit(`install ${identityPath}`, 'restore the previous identity manifest', true);
+      printInit(
+        `install ${identityPath}`,
+        existingIdentity === null ? 'delete the file' : 'restore the previous identity manifest',
+        true,
+      );
     }
     const pluginPlans = await pluginFilePlans(ctx, home);
     for (const plan of pluginPlans) {
@@ -172,7 +176,7 @@ export async function run(argv, ctx) {
     await writeTextAtomic(configPath, DEFAULT_CONFIG_TOML, { mode: 0o600 });
     printInit(`installed ${configPath}`, 'delete the file', false);
   } else {
-    printInit(`noop ${configPath}`, 'delete the file', false);
+    printInit(`noop ${configPath}`, 'nothing changed', false);
   }
 
   const existingIdentity = await readIfPresent(identityPath);
@@ -183,9 +187,13 @@ export async function run(argv, ctx) {
   const nextIdentity = manifestBytes(manifest);
   if (existingIdentity === null || !existingIdentity.equals(nextIdentity)) {
     await writeJsonAtomic(identityPath, manifest);
-    printInit(`installed ${identityPath}`, 'restore the previous identity manifest', false);
+    printInit(
+      `installed ${identityPath}`,
+      existingIdentity === null ? 'delete the file' : 'restore the previous identity manifest',
+      false,
+    );
   } else {
-    printInit(`noop ${identityPath}`, 'restore the previous identity manifest', false);
+    printInit(`noop ${identityPath}`, 'nothing changed', false);
   }
 
   const writeBackup = (slug, bytes) => store.writeBackup(slug, bytes);

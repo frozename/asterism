@@ -11,6 +11,18 @@ import { copyTree, runAll, runMutant } from '../harness/mutants/run.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MUTANT_ID = /^MUT-[A-Z0-9-]+$/;
 
+function assertUniqueMutantAnchors(mutants) {
+  const seen = new Map();
+  for (const mutant of mutants) {
+    const key = `${mutant.file}\0${mutant.find}`;
+    const prior = seen.get(key);
+    if (prior !== undefined) {
+      throw new Error(`${prior} and ${mutant.id} share the same "find" anchor in ${mutant.file}`);
+    }
+    seen.set(key, mutant.id);
+  }
+}
+
 if (Object.hasOwn(process.env, 'ASTERISM_MUTANT_RUN')) {
   test('skipped inside a mutant run', { skip: 'inside a mutant run' }, () => {});
 } else {
@@ -37,6 +49,18 @@ if (Object.hasOwn(process.env, 'ASTERISM_MUTANT_RUN')) {
         assert.ok(existsSync(absolute), `${mutant.id} claims ${relative}, which does not exist`);
       }
     }
+  });
+
+  test('every mutant has a unique (file, find) anchor', () => {
+    assertUniqueMutantAnchors(MUTANTS);
+  });
+
+  test('duplicate-anchor failure names both mutant ids and their file', () => {
+    const duplicate = { file: 'src/core/example.js', find: 'same source bytes' };
+    assert.throws(
+      () => assertUniqueMutantAnchors([{ id: 'MUT-FIRST', ...duplicate }, { id: 'MUT-SECOND', ...duplicate }]),
+      { message: 'MUT-FIRST and MUT-SECOND share the same "find" anchor in src/core/example.js' },
+    );
   });
 
   test('every mutant\'s "find" occurs exactly once in its file on the real tree', async () => {

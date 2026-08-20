@@ -123,6 +123,50 @@ test('init dry-run prints rollback-bearing changes and changes no tree', async (
   assert.equal(await treeSha(box.base), installed);
 });
 
+test('init rollback advice distinguishes new, replaced, and unchanged config and identity files', async () => {
+  const box = await sandbox('ast-init-rollback-');
+  const configPath = path.join(box.configDir, 'config.toml');
+  const identityPath = path.join(box.stateDir, 'identity.json');
+
+  const freshDry = await runAst(['init', '--dry-run'], box.env);
+  assert.equal(freshDry.code, 0, freshDry.stderr);
+  assert.ok(
+    freshDry.stdout.includes(`init: would install ${configPath} -- rollback: delete the file\n`),
+    freshDry.stdout,
+  );
+  assert.ok(
+    freshDry.stdout.includes(`init: would install ${identityPath} -- rollback: delete the file\n`),
+    freshDry.stdout,
+  );
+
+  const freshReal = await runAst(['init'], box.env);
+  assert.equal(freshReal.code, 0, freshReal.stderr);
+  assert.ok(freshReal.stdout.includes(`init: installed ${configPath} -- rollback: delete the file\n`), freshReal.stdout);
+  assert.ok(freshReal.stdout.includes(`init: installed ${identityPath} -- rollback: delete the file\n`), freshReal.stdout);
+
+  const noopReal = await runAst(['init'], box.env);
+  assert.equal(noopReal.code, 0, noopReal.stderr);
+  assert.ok(noopReal.stdout.includes(`init: noop ${configPath} -- rollback: nothing changed\n`), noopReal.stdout);
+  assert.ok(noopReal.stdout.includes(`init: noop ${identityPath} -- rollback: nothing changed\n`), noopReal.stdout);
+
+  await appendFile(identityPath, '\n');
+  const replaceDry = await runAst(['init', '--dry-run'], box.env);
+  assert.equal(replaceDry.code, 0, replaceDry.stderr);
+  assert.ok(
+    replaceDry.stdout.includes(
+      `init: would install ${identityPath} -- rollback: restore the previous identity manifest\n`,
+    ),
+    replaceDry.stdout,
+  );
+
+  const replaceReal = await runAst(['init'], box.env);
+  assert.equal(replaceReal.code, 0, replaceReal.stderr);
+  assert.ok(
+    replaceReal.stdout.includes(`init: installed ${identityPath} -- rollback: restore the previous identity manifest\n`),
+    replaceReal.stdout,
+  );
+});
+
 test('init is byte-idempotent and preserves identity bytes', async () => {
   const box = await sandbox('ast-init-idempotent-');
   assert.equal((await runAst(['init'], box.env)).code, 0);

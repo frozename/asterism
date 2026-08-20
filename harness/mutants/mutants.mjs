@@ -457,10 +457,18 @@ export const MUTANTS = Object.freeze([
   Object.freeze({
     id: 'MUT-LIFECYCLE-UNKNOWN-STATE-DEFAULT',
     file: 'src/core/lifecycle.js',
-    find: `    throw new TypeError(\`lifecycle: unknown state "\${state}"\`);`,
-    replace: `    return;\n    throw new TypeError(\`lifecycle: unknown state "\${state}"\`);`,
+    find: `  if (!Object.hasOwn(TABLE, state)) {\n    throw new LifecycleVocabularyError(\`lifecycle: unknown state "\${state}"\`);\n  }`,
+    replace: `  if (!Object.hasOwn(TABLE, state)) {\n    return;\n  }`,
     claimedBy: Object.freeze(['test/lifecycle.test.mjs']),
     why: 'defaulting an unknown state turns a vocabulary defect into an unrelated result or runtime error',
+  }),
+  Object.freeze({
+    id: 'MUT-LIFECYCLE-UNKNOWN-EVENT-BARE-TYPEERROR',
+    file: 'src/core/lifecycle.js',
+    find: `    throw new LifecycleVocabularyError(\`lifecycle: unknown event "\${event}"\`);`,
+    replace: `    throw new TypeError(\`lifecycle: unknown event "\${event}"\`);`,
+    claimedBy: Object.freeze(['test/lifecycle.test.mjs']),
+    why: 'a bare TypeError erases the structural distinction between unknown lifecycle vocabulary and other type failures',
   }),
   // --- T14 mutants
   Object.freeze({
@@ -498,16 +506,16 @@ export const MUTANTS = Object.freeze([
   Object.freeze({
     id: 'MUT-SPAWNARGV-ACCEPTS-ULID',
     file: 'src/core/uuid.js',
-    find: `export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;`,
-    replace: `export const UUID_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9A-HJKMNP-TV-Z]{26})$/;`,
+    find: `export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;\n\nfunction hex(byte) {`,
+    replace: `export const UUID_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9A-HJKMNP-TV-Z]{26})$/;\n\nfunction hex(byte) {`,
     claimedBy: Object.freeze(['test/adapter-conformance.test.mjs', 'test/uuid.test.mjs']),
     why: 'the vendor launch flag requires a UUID; accepting the primary store id shape conflates two identities',
   }),
   Object.freeze({
     id: 'MUT-UUID-ACCEPTS-ANY-VERSION',
     file: 'src/core/uuid.js',
-    find: `export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;`,
-    replace: `export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;`,
+    find: `export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;\n\nfunction hex(byte) {\n  return byte.toString(16).padStart(2, '0');\n}`,
+    replace: `export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;\n\nfunction hex(byte) {\n  return byte.toString(16).padStart(2, '0');\n}`,
     claimedBy: Object.freeze(['test/uuid.test.mjs']),
     why: 'dropping the version nibble silently re-admits non-v4 UUIDs at every adapter boundary',
   }),

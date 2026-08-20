@@ -9,7 +9,13 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { decideL3, l3Gate, withAttachedClient, withSandboxServer } from '../harness/l3.mjs';
+import {
+  decideL3,
+  killAndAssertGone,
+  l3Gate,
+  withAttachedClient,
+  withSandboxServer,
+} from '../harness/l3.mjs';
 import { parseListPanes } from '../src/core/tmuxparse.js';
 import { execTmux, newWindow } from '../src/io/tmuxexec.js';
 
@@ -121,6 +127,89 @@ test('l3Gate: ASTERISM_L3=1 forces a hard run without invoking a failing boot pr
   assert.deepEqual(await l3Gate({ ASTERISM_L3: '1' }, { execute }), { mode: 'run', hard: true });
   assert.equal(calls.filter((argv) => argv.includes('-V')).length, 1);
   assert.equal(calls.filter((argv) => argv.includes('new-session')).length, 0);
+});
+
+test('killAndAssertGone refuses a failed kill while the server remains reachable', async () => {
+  const socketDir = mkdtempSync(path.join(os.tmpdir(), 'tmux-'));
+  const socketPath = path.join(socketDir, 'asterism-test-still-live');
+  writeFileSync(socketPath, '');
+  const calls = [];
+  const execute = async (argv) => {
+    calls.push(argv);
+    if (argv.includes('kill-server')) {
+      return { code: 1, stdout: Buffer.alloc(0), stderr: Buffer.from('kill refused\n') };
+    }
+    return { code: 0, stdout: Buffer.from(`${socketPath}\n`), stderr: Buffer.alloc(0) };
+  };
+
+  try {
+    await assert.rejects(
+      () => killAndAssertGone('asterism-test-still-live', {}, socketPath, { execute }),
+      /server still reachable/,
+    );
+    assert.equal(calls.filter((argv) => argv.includes('kill-server')).length, 1);
+    assert.equal(calls.filter((argv) => argv.includes('display-message')).length, 1);
+    assert.equal(existsSync(socketPath), true, 'a live server socket must not be unlinked');
+  } finally {
+    rmSync(socketDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  }
+});
+
+test('withSandboxServer routes setup, callback commands, and teardown through its execution seam', async () => {
+  const socketDir = mkdtempSync(path.join(os.tmpdir(), 'tmux-'));
+  const socketPath = path.join(socketDir, `asterism-test-${process.pid}`);
+  const calls = [];
+  const execute = async (argv) => {
+    calls.push(argv);
+    if (argv.includes('new-session')) writeFileSync(socketPath, '');
+    if (argv.includes('display-message')) {
+      return { code: 0, stdout: Buffer.from(`${socketPath}\n`), stderr: Buffer.alloc(0) };
+    }
+    return { code: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+  };
+
+  try {
+    await withSandboxServer(
+      async ({ raw }) => {
+        await raw(['list-panes']);
+      },
+      { env: {}, execute },
+    );
+    assert.equal(calls.some((argv) => argv.includes('new-session')), true);
+    assert.equal(calls.some((argv) => argv.includes('list-panes')), true);
+    assert.equal(calls.some((argv) => argv.includes('kill-server')), true);
+  } finally {
+    rmSync(socketDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  }
+});
+
+test('withAttachedClient routes both servers, callback commands, and teardowns through its execution seam', async () => {
+  const socketDir = mkdtempSync(path.join(os.tmpdir(), 'tmux-'));
+  const calls = [];
+  const execute = async (argv) => {
+    calls.push(argv);
+    const label = argv[argv.indexOf('-L') + 1];
+    const socketPath = path.join(socketDir, label);
+    if (argv.includes('new-session')) writeFileSync(socketPath, '');
+    if (argv.includes('display-message')) {
+      return { code: 0, stdout: Buffer.from(`${socketPath}\n`), stderr: Buffer.alloc(0) };
+    }
+    return { code: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+  };
+
+  try {
+    await withAttachedClient(
+      async ({ raw }) => {
+        await raw(['list-clients']);
+      },
+      { env: {}, execute },
+    );
+    assert.equal(calls.filter((argv) => argv.includes('new-session')).length, 2);
+    assert.equal(calls.filter((argv) => argv.includes('kill-server')).length, 2);
+    assert.equal(calls.some((argv) => argv.includes('list-clients')), true);
+  } finally {
+    rmSync(socketDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  }
 });
 
 test('l3Gate: two consecutive calls share one boot probe per process', async () => {

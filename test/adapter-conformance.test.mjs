@@ -172,6 +172,13 @@ for (const adapter of registry.values()) {
     assert.throws(() => adapter.spawnArgv({ sessionId: '01ARYZ6S410000000000000000' }), /sessionId/);
   });
 
+  test(`${adapter.id}: spawnArgv rejects a canonical lowercase v1 UUID and names the v4 constraint`, () => {
+    assert.throws(
+      () => adapter.spawnArgv({ sessionId: '00010203-0405-1687-8809-0a0b0c0d0e0f' }),
+      /version-4/,
+    );
+  });
+
   test(`${adapter.id}: spawn argv source is filesystem-, process-, clock-, and random-free`, async () => {
     const source = await readSpawnSource(path.join(ROOT, 'src', 'adapters', adapter.id, 'spawn.js'), 'utf8');
     assert.deepEqual(sourcePurityOffenses(source), []);

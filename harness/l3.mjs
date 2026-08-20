@@ -190,8 +190,28 @@ export async function l3Gate(env, { execute = procexec } = {}) {
 // successful kill-server). A lazy teardown that only confirms the server is
 // gone walks straight past the leftover file, so teardown must remove it
 // itself and then verify the removal actually took.
-async function killAndAssertGone(label, env, socketPath) {
-  await procexec(['tmux', '-L', label, 'kill-server'], { env }).catch(() => {});
+export async function killAndAssertGone(label, env, socketPath, { execute = procexec } = {}) {
+  let killErrorText = null;
+  let serverGone = false;
+  try {
+    const killResult = await execute(['tmux', '-L', label, 'kill-server'], { env });
+    if (killResult.code === 0 && killResult.timedOut !== true && killResult.truncated !== true) {
+      serverGone = true;
+    } else {
+      killErrorText = commandErrorText(killResult);
+      serverGone = reportsNoServer(killResult);
+    }
+  } catch (error) {
+    killErrorText = error?.message ?? String(error);
+  }
+
+  if (!serverGone) serverGone = await probeServerGone(label, env, execute);
+  if (!serverGone) {
+    throw new Error(
+      `withSandboxServer: failed to stop tmux server "${label}": ${killErrorText ?? 'kill-server status unavailable'}; server still reachable`,
+    );
+  }
+
   try {
     unlinkSync(socketPath);
   } catch (err) {
@@ -204,56 +224,56 @@ async function killAndAssertGone(label, env, socketPath) {
   }
 }
 
-async function sandboxSocketPath(label, env) {
-  const result = await procexec(['tmux', '-u', '-L', label, 'display-message', '-p', '#{socket_path}'], { env });
+async function sandboxSocketPath(label, env, execute) {
+  const result = await execute(['tmux', '-u', '-L', label, 'display-message', '-p', '#{socket_path}'], { env });
   return result.stdout.toString('utf8').trim();
 }
 
-export async function withSandboxServer(fn, { env }) {
+export async function withSandboxServer(fn, { env, execute = procexec }) {
   const label = `asterism-test-${process.pid}`;
 
-  await procexec(['tmux', '-u', '-L', label, '-f', '/dev/null', 'new-session', '-d', '-x', '80', '-y', '24'], { env });
-  const socketPath = await sandboxSocketPath(label, env);
+  await execute(['tmux', '-u', '-L', label, '-f', '/dev/null', 'new-session', '-d', '-x', '80', '-y', '24'], { env });
+  const socketPath = await sandboxSocketPath(label, env, execute);
 
-  const raw = (args, { env: callEnv = env } = {}) => procexec(['tmux', '-L', label, ...args], { env: callEnv });
+  const raw = (args, { env: callEnv = env } = {}) => execute(['tmux', '-L', label, ...args], { env: callEnv });
 
   try {
     return await fn({ label, socketPath, raw });
   } finally {
-    await killAndAssertGone(label, env, socketPath);
+    await killAndAssertGone(label, env, socketPath, { execute });
   }
 }
 
-export async function withAttachedClient(fn, { env }) {
+export async function withAttachedClient(fn, { env, execute = procexec }) {
   const probeLabel = `asterism-test-probe-${process.pid}`;
   const hostLabel = `asterism-test-host-${process.pid}`;
 
-  await procexec(
+  await execute(
     ['tmux', '-u', '-L', probeLabel, '-f', '/dev/null', 'new-session', '-d', '-x', '80', '-y', '24'],
     { env },
   );
-  const probeSocketPath = await sandboxSocketPath(probeLabel, env);
+  const probeSocketPath = await sandboxSocketPath(probeLabel, env, execute);
 
-  await procexec(
+  await execute(
     [
       'tmux', '-u', '-L', hostLabel, '-f', '/dev/null', 'new-session', '-d', '-x', '80', '-y', '24',
       `tmux -u -L ${probeLabel} attach`,
     ],
     { env },
   );
-  const hostSocketPath = await sandboxSocketPath(hostLabel, env);
+  const hostSocketPath = await sandboxSocketPath(hostLabel, env, execute);
   // The host's attach client needs a moment to connect to the probe server
   // after new-session returns -- without this, list-clients on the probe can
   // observe zero clients (measured: a fixed race, not a fixture of the
   // scenario).
   await delay(ATTACH_SETTLE_MS);
 
-  const raw = (args, { env: callEnv = env } = {}) => procexec(['tmux', '-L', probeLabel, ...args], { env: callEnv });
+  const raw = (args, { env: callEnv = env } = {}) => execute(['tmux', '-L', probeLabel, ...args], { env: callEnv });
 
   try {
     return await fn({ probeLabel, hostLabel, socketPath: probeSocketPath, raw });
   } finally {
-    await killAndAssertGone(hostLabel, env, hostSocketPath);
-    await killAndAssertGone(probeLabel, env, probeSocketPath);
+    await killAndAssertGone(hostLabel, env, hostSocketPath, { execute });
+    await killAndAssertGone(probeLabel, env, probeSocketPath, { execute });
   }
 }
