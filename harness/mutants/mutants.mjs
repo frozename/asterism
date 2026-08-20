@@ -253,4 +253,30 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/tmuxparse.test.mjs']),
     why: 'an embedded newline then forges extra records under -u',
   }),
+
+  // --- T6 mutants
+  Object.freeze({
+    id: 'MUT-CFGEDIT-REPAIR-DRIFT',
+    file: 'src/io/cfgedit.js',
+    find: `  return { status: 'warn', detail: \`managed block "\${blockId}" in \${targetPath} has drifted from what asterism last wrote\` };\n`,
+    replace: `  const handle = await open(targetPath, 'w');\n  await handle.writeFile(content);\n  await handle.close();\n  return { status: 'pass' };\n`,
+    claimedBy: Object.freeze(['test/cfgedit.test.mjs']),
+    why: 'a drift check that repairs the drift it detects is the "if missing, regenerate" failure threat T5 names, and the code half of refuse rule R2 -- report-only means report-only',
+  }),
+  Object.freeze({
+    id: 'MUT-CFGEDIT-REMOVE-LEAVES-MARKER',
+    file: 'src/io/cfgedit.js',
+    find: `    const afterText = beforeText.slice(0, located.openOcc.start) + beforeText.slice(located.closeOcc.end);\n`,
+    replace: `    const afterText = beforeText.slice(0, located.openOcc.end) + beforeText.slice(located.closeOcc.end);\n`,
+    claimedBy: Object.freeze(['test/cfgedit.test.mjs']),
+    why: 'a remove that leaves the open marker line behind fails the uninstall contract: uninstall must leave the rest of the file byte-identical to before the block ever existed',
+  }),
+  Object.freeze({
+    id: 'MUT-CFGEDIT-NO-RESTORE',
+    file: 'src/io/cfgedit.js',
+    find: `    if (!verifyBuffer.equals(plan.after)) {\n      if (plan.before === null) {\n        await unlink(targetPath);\n      } else {\n        await writeViaTempAndRename(targetPath, plan.before, mode);\n      }\n      throw new Error(\`cfgedit: post-write verify failed for \${targetPath}; original bytes restored; backup at \${backupPath}\`);\n    }\n`,
+    replace: '',
+    claimedBy: Object.freeze(['test/cfgedit.test.mjs']),
+    why: 'a byte-diff that finds a mismatch and does nothing about it turns a corrupted write into a silent success',
+  }),
 ]);
