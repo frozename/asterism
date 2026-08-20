@@ -19,7 +19,7 @@ export function parsePsPidLstart(text) {
     if (line.trim().length === 0) continue;
     const match = /^\s*(\d+)\s+([A-Za-z].*)$/.exec(line);
     if (match === null) throw new RangeError(`process table line ${index + 1} is malformed: "${line}"`);
-    table.set(Number(match[1]), parseCtime(match[2], { utc: false }));
+    table.set(Number(match[1]), parseCtime(match[2].trimEnd(), { utc: false }));
   }
   return table;
 }

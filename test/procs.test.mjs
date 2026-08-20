@@ -109,3 +109,28 @@ test('bootId and hostId return null on environmental failure, beside a darwin pa
   const hostname = hostId();
   assert.ok(hostname === null || typeof hostname === 'string');
 });
+
+test('processTable parses ps lstart output with four trailing spaces without degrading', async () => {
+  const result = await processTable([111], {
+    execute: async () => response(' 111 Mon Aug 17 20:27:33 2026    \n'),
+  });
+
+  assert.equal(result.table.get(111), parseCtime('Mon Aug 17 20:27:33 2026', { utc: false }));
+  assert.equal(result.note, null);
+});
+
+test('parsePsPidLstart trims trailing padding without collapsing single-digit-day spacing', () => {
+  const table = parsePsPidLstart(' 222 Thu Aug  1 07:05:09 2026    \n');
+
+  assert.equal(table.get(222), parseCtime('Thu Aug  1 07:05:09 2026', { utc: false }));
+});
+
+test('processTable still degrades when a matched lstart value is genuinely malformed', async () => {
+  const result = await processTable([333], {
+    execute: async () => response(' 333 Mon Aug 17 20:27 2026\n'),
+  });
+
+  assert.equal(result.table.size, 0);
+  assert.equal(typeof result.note, 'string');
+  assert.ok(result.note.includes('parseCtime: input does not match the ctime shape'));
+});
