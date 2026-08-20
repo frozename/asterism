@@ -392,4 +392,22 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/init-uninstall.test.mjs']),
     why: 'an uninstall that leaves the managed block is how stale config accretes -- the exact fossil record the uninstall verb exists to prevent',
   }),
+
+  // --- T11 mutants
+  Object.freeze({
+    id: 'MUT-GO-CLIENT-SESSION-NAME',
+    file: 'src/cli/verbs/go.js',
+    find: `  const outcome = await switchClient({ clientName: chosen.clientName, target: paneId, socketPath, env });`,
+    replace: `  const outcome = await switchClient({ clientName: chosen.clientName, target: listed.rows[0].sessionId, socketPath, env });`,
+    claimedBy: Object.freeze(['test/go.test.mjs']),
+    why: 'the client row is metadata for -c, never a target; a neighbouring client-session field is a name and ids-only targets keep it out of -t',
+  }),
+  Object.freeze({
+    id: 'MUT-BIND-ACCEPT-NAME',
+    file: 'src/cli/verbs/bind.js',
+    find: `  if (!PANE_ID.test(paneId)) return refusal(\`pane id "\${paneId}" does not match ^%\\\\d+$\`);`,
+    replace: `  if (false) return refusal(\`pane id "\${paneId}" does not match ^%\\\\d+$\`);`,
+    claimedBy: Object.freeze(['test/bind.test.mjs']),
+    why: 'a name-shaped pane id accepted here becomes a name-keyed tmux target one layer down, violating the ids-only invariant',
+  }),
 ]);

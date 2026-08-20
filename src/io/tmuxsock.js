@@ -65,3 +65,46 @@ export async function resolveServer({ env, uid, probe, realpath = realpathSync, 
 
   return { ok: false, reason: 'no-server' };
 }
+
+export async function resolveServers({ env, uid, probe, realpath = realpathSync, exists = existsSync, listDir = readdirSync }) {
+  const rungs = [];
+  rungs.push(...candidatesFromTmuxEnv(env.TMUX));
+  if (typeof env.TMUX_TMPDIR === 'string' && env.TMUX_TMPDIR.length > 0) {
+    rungs.push(...candidatesFromDir(path.join(env.TMUX_TMPDIR, `tmux-${uid}`), listDir));
+  }
+  rungs.push(...candidatesFromDir(path.join('/tmp', `tmux-${uid}`), listDir));
+
+  const servers = [];
+  const seen = new Set();
+  for (const candidate of rungs) {
+    if (!exists(candidate.socketPath)) continue;
+    let candidateReal;
+    try {
+      candidateReal = realpath(candidate.socketPath);
+    } catch {
+      continue;
+    }
+    let probed;
+    try {
+      probed = await probe({ socketPath: candidateReal, env });
+    } catch {
+      continue;
+    }
+    if (!probed || probed.ok !== true) continue;
+
+    let probedReal;
+    try {
+      probedReal = realpath(probed.socketPath);
+    } catch {
+      continue;
+    }
+    if (candidateReal !== probedReal || seen.has(candidateReal)) continue;
+    seen.add(candidateReal);
+    servers.push(Object.freeze({
+      socketPath: candidateReal,
+      serverPid: candidate.serverPid ?? probed.pid,
+      version: probed.version,
+    }));
+  }
+  return Object.freeze(servers);
+}
