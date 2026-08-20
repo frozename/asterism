@@ -408,6 +408,97 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/init-uninstall.test.mjs']),
     why: 'an uninstall that leaves the managed block is how stale config accretes -- the exact fossil record the uninstall verb exists to prevent',
   }),
+  Object.freeze({
+    id: 'MUT-INIT-RESTARTS-BOUND-SESSIONS',
+    file: 'src/cli/verbs/init.js',
+    find: `  const needsRestart = [...sessions.values()].filter(({ adapter, sessionId }) =>
+    !bindings.some(({ record }) =>
+      record.adapter === adapter &&
+      record.sessionId === sessionId &&
+      STRONG_WITNESSES.includes(record.by) &&
+      liveServerPids.has(record.serverPid),
+    ),
+  );`,
+    replace: `  const needsRestart = [...sessions.values()];`,
+    claimedBy: Object.freeze(['test/init-uninstall.test.mjs']),
+    why: 'without the usability filter init tells already-bound sessions to restart and disrupts live work for no reason',
+  }),
+  Object.freeze({
+    id: 'MUT-INIT-RESTART-IGNORES-ADAPTER',
+    file: 'src/cli/verbs/init.js',
+    find: `      record.adapter === adapter &&
+      record.sessionId === sessionId &&`,
+    replace: `      record.sessionId === sessionId &&`,
+    claimedBy: Object.freeze(['test/init-uninstall.test.mjs']),
+    why: 'session ids belong to adapter namespaces, so a binding from another adapter cannot make this session usable',
+  }),
+  Object.freeze({
+    id: 'MUT-INIT-RESTART-TRUSTS-TMUX-ENV-PID',
+    file: 'src/cli/verbs/init.js',
+    find: `  const liveServerPids = new Set(servers.map((server) => probedPids.get(server.socketPath)).filter(Number.isInteger));`,
+    replace: `  const liveServerPids = new Set(servers.map((server) => server.serverPid));`,
+    claimedBy: Object.freeze(['test/init-uninstall.test.mjs']),
+    why: 'a stale TMUX carrier pid is not proof of the server that answered the live probe',
+  }),
+  Object.freeze({
+    id: 'MUT-INIT-RESTART-KEYS-PROBED-ALIAS',
+    file: 'src/cli/verbs/init.js',
+    find: `      if (result.ok === true) probedPids.set(socketPath, result.pid);`,
+    replace: `      if (result.ok === true) probedPids.set(result.socketPath, result.pid);`,
+    claimedBy: Object.freeze(['test/init-uninstall.test.mjs']),
+    why: 'the resolver returns the canonical candidate path, so a probe-reported alias cannot key the accepted server pid',
+  }),
+  Object.freeze({
+    id: 'MUT-INIT-REFRESH-WRITES-CONFIG',
+    file: 'src/cli/verbs/init.js',
+    find: `  if (options.refresh) {
+    return refreshIdentity({ dryRun: options.dryRun, root: ctx.root, identityPath, env });
+  }`,
+    replace: `  if (options.refresh) {
+    await writeTextAtomic(configPath, DEFAULT_CONFIG_TOML, { mode: 0o600 });
+    return refreshIdentity({ dryRun: options.dryRun, root: ctx.root, identityPath, env });
+  }`,
+    claimedBy: Object.freeze(['test/init-uninstall.test.mjs']),
+    why: 'refresh is a narrow re-attestation and must not rewrite configuration as though it were a full install',
+  }),
+  Object.freeze({
+    id: 'MUT-INIT-REFRESH-SILENT',
+    file: 'src/cli/verbs/init.js',
+    find: `    process.stdout.write(\`init refresh: \${dryRun ? 'would re-attest' : 're-attested'} \${relativePath} (sha256 moved)\\n\`);`,
+    replace: ``,
+    claimedBy: Object.freeze(['test/init-uninstall.test.mjs']),
+    why: 'a silent refresh turns explicit human re-attestation into an unreviewable rubber stamp',
+  }),
+  Object.freeze({
+    id: 'MUT-INIT-REFRESH-CREATES-MANIFEST',
+    file: 'src/cli/verbs/init.js',
+    find: `  if (existingIdentity === null) return refreshRefusal('identity manifest is absent');`,
+    replace: `  if (false) return refreshRefusal('identity manifest is absent');`,
+    claimedBy: Object.freeze(['test/init-uninstall.test.mjs']),
+    why: 'refresh must refuse without an existing install manifest instead of crossing the install boundary or crashing',
+  }),
+  Object.freeze({
+    id: 'MUT-INIT-REFRESH-ACCEPTS-BAD-DIGEST',
+    file: 'src/cli/verbs/init.js',
+    find: `    !Array.isArray(value.files) &&
+    Object.values(value.files).every((digest) => typeof digest === 'string' && SHA256_HEX.test(digest));`,
+    replace: `    !Array.isArray(value.files);`,
+    claimedBy: Object.freeze(['test/init-uninstall.test.mjs']),
+    why: 'a non-SHA value is a malformed manifest, not a tree change the refresh path may silently bless',
+  }),
+  Object.freeze({
+    id: 'MUT-INIT-REFRESH-SKIPS-STORE-GUARD',
+    file: 'src/cli/verbs/init.js',
+    find: `    try {
+      await openStore({ env });
+    } catch (error) {
+      process.stderr.write(\`init refresh: \${error?.message ?? error}\\n\`);
+      return 1;
+    }`,
+    replace: ``,
+    claimedBy: Object.freeze(['test/init-uninstall.test.mjs']),
+    why: 'identity must not be rewritten until the existing store passes its schema and owner-only directory guards',
+  }),
 
   // --- T11 mutants
   Object.freeze({

@@ -1,17 +1,23 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { appendFile, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { appendFile, chmod, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { promisify } from 'node:util';
 import { buildRegistry } from '../src/adapters/index.js';
+import { run as runInit } from '../src/cli/verbs/init.js';
+import { buildIdentityManifest } from '../src/io/identity.js';
+import { openStore } from '../src/io/store.js';
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const AST_BIN = path.join(ROOT, 'bin', 'ast');
+const FAKE_TMUX = path.join(ROOT, 'harness', 'fake-tmux', 'tmux');
+const NODE = typeof globalThis.Bun === 'undefined' ? process.execPath : globalThis.Bun.which('node');
+assert.ok(NODE, 'the test runner could not locate node for the fake-tmux shebang');
 const adapter = [...buildRegistry({}).values()][0];
 
 async function sandbox(prefix) {
@@ -49,6 +55,28 @@ async function runAst(args, env) {
   }
 }
 
+async function runInitDirect(args, ctx) {
+  let stdout = '';
+  let stderr = '';
+  const originalStdoutWrite = process.stdout.write;
+  const originalStderrWrite = process.stderr.write;
+  process.stdout.write = (chunk) => {
+    stdout += String(chunk);
+    return true;
+  };
+  process.stderr.write = (chunk) => {
+    stderr += String(chunk);
+    return true;
+  };
+  try {
+    const code = await runInit(args, ctx);
+    return { code, stdout, stderr };
+  } finally {
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+  }
+}
+
 function bytesSha(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
@@ -80,6 +108,47 @@ async function treeSha(root) {
 
 async function assertAbsent(filePath) {
   await assert.rejects(() => readFile(filePath), { code: 'ENOENT' });
+}
+
+async function refreshFixture({ manifest = true } = {}) {
+  const box = await sandbox('ast-init-refresh-');
+  const root = path.join(box.base, 'root');
+  const sourcePath = path.join(root, 'src', 'example.js');
+  const identityPath = path.join(box.stateDir, 'identity.json');
+  const managedPaths = [
+    path.join(box.configDir, 'config.toml'),
+    path.join(box.home, 'plugin', 'managed.txt'),
+    path.join(box.home, '.tmux.conf'),
+    path.join(box.configDir, '_ast'),
+  ];
+  await Promise.all([
+    mkdir(path.join(root, 'bin'), { recursive: true }),
+    mkdir(path.join(root, 'src'), { recursive: true }),
+    mkdir(path.dirname(managedPaths[1]), { recursive: true }),
+  ]);
+  await openStore({ env: box.env });
+  await writeFile(path.join(root, 'bin', 'ast'), '#!/usr/bin/env node\n');
+  await writeFile(sourcePath, 'export const example = 1;\n');
+  for (const [index, managedPath] of managedPaths.entries()) {
+    await writeFile(managedPath, `managed sentinel ${index}\n`);
+  }
+  if (manifest) {
+    const identity = await buildIdentityManifest({ root, mint: () => 'TESTULID0000000000000000' });
+    await writeFile(identityPath, `${JSON.stringify(identity, null, 2)}\n`);
+  }
+  const refreshAdapter = Object.freeze({
+    id: 'refresh-fixture',
+    discover: async () => [],
+    installPlan: () => [Object.freeze({ targetPath: managedPaths[1], content: 'rewritten plugin\n' })],
+  });
+  return {
+    ...box,
+    root,
+    sourcePath,
+    identityPath,
+    managedPaths,
+    ctx: { env: box.env, root, adapters: new Map([[refreshAdapter.id, refreshAdapter]]) },
+  };
 }
 
 test('init and uninstall leave the profile byte-identical, with a live comparator control', async () => {
@@ -236,4 +305,144 @@ test('init reports the running-session restart outcome and unknown flags fail us
   assert.equal(init.stdout.includes('restart to become bindable:'), false);
   assert.equal((await runAst(['init', '--other'], box.env)).code, 2);
   assert.equal((await runAst(['uninstall', '--purge'], box.env)).code, 2);
+});
+
+test('init names only sessions without a strong binding on a live tmux server', async () => {
+  const box = await sandbox('ast-init-restart-mixed-');
+  const shimDir = path.join(box.base, 'bin');
+  const fakeRoot = path.join(box.base, 'fake-root');
+  const fixturesDir = path.join(box.base, 'fixtures');
+  const socketDir = path.join(box.base, `tmux-${process.getuid()}`);
+  const socketFile = path.join(socketDir, 'asterism-test-init');
+  const logPath = path.join(box.base, 'tmux.log');
+  await Promise.all([
+    mkdir(shimDir),
+    mkdir(path.join(fakeRoot, 'sessions'), { recursive: true }),
+    mkdir(fixturesDir),
+    mkdir(socketDir),
+  ]);
+  await copyFile(FAKE_TMUX, path.join(shimDir, 'tmux'));
+  await chmod(path.join(shimDir, 'tmux'), 0o755);
+  for (const [index, id] of ['already-bound', 'no-binding', 'dead-server', 'weak-binding'].entries()) {
+    await writeFile(path.join(fakeRoot, 'sessions', `${index}.json`), JSON.stringify({ id, status: 'waiting' }));
+  }
+  await writeFile(socketFile, '');
+  const socketPath = await realpath(socketFile);
+  await writeFile(path.join(fixturesDir, 'display-message.out'), `${socketFile},4242,3.7c\n`);
+
+  const env = {
+    ...box.env,
+    PATH: `${shimDir}${path.delimiter}${path.dirname(NODE)}`,
+    ASTERISM_TEST: '1',
+    ASTERISM_FAKE_ROOT: fakeRoot,
+    ASTERISM_FAKE_TMUX_LOG: logPath,
+    ASTERISM_FAKE_TMUX_FIXTURES: fixturesDir,
+    TMUX_TMPDIR: box.base,
+    TMUX: `${socketFile},7777,0`,
+  };
+  const store = await openStore({ env });
+  await store.writeBinding('01ARZ3NDEKTSV4RRFFQ69G5FAV', {
+    adapter: 'fake', sessionId: 'already-bound', by: 'AgentAsserted', target: '%0',
+    socketPath, serverPid: 4242, at: '2026-08-20T00:00:00.000Z',
+  });
+  await store.writeBinding('01ARZ3NDEKTSV4RRFFQ69G5FAW', {
+    adapter: 'fake', sessionId: 'dead-server', by: 'HumanAsserted', target: '%1',
+    socketPath: '/dead/socket', serverPid: 9999, at: '2026-08-20T00:00:00.000Z',
+  });
+  await store.writeBinding('01ARZ3NDEKTSV4RRFFQ69G5FAX', {
+    adapter: 'fake', sessionId: 'weak-binding', by: 'VendorRegistry', target: '%2',
+    socketPath, serverPid: 4242, at: '2026-08-20T00:00:00.000Z',
+  });
+  await store.writeBinding('01ARZ3NDEKTSV4RRFFQ69G5FAY', {
+    adapter: 'other', sessionId: 'no-binding', by: 'HumanAsserted', target: '%3',
+    socketPath, serverPid: 4242, at: '2026-08-20T00:00:00.000Z',
+  });
+
+  const init = await runAst(['init'], env);
+  assert.equal(init.code, 0, init.stderr);
+  assert.ok(init.stdout.includes('restart to become bindable: fake no-binding\n'), init.stdout);
+  assert.ok(init.stdout.includes('restart to become bindable: fake dead-server\n'), init.stdout);
+  assert.ok(init.stdout.includes('restart to become bindable: fake weak-binding\n'), init.stdout);
+  assert.equal(init.stdout.includes('restart to become bindable: fake already-bound\n'), false, init.stdout);
+  assert.equal(init.stdout.includes('no running sessions need a restart\n'), false, init.stdout);
+});
+
+test('init --refresh re-attests changed source and leaves every other managed file byte-identical', async () => {
+  const box = await refreshFixture();
+  const beforeIdentity = await readFile(box.identityPath);
+  const beforeManaged = await Promise.all(box.managedPaths.map((filePath) => readFile(filePath)));
+  const priorInstallId = JSON.parse(beforeIdentity.toString('utf8')).installId;
+  await writeFile(box.sourcePath, 'export const example = 2;\n');
+
+  const refreshed = await runInitDirect(['--refresh'], box.ctx);
+  assert.equal(refreshed.code, 0, refreshed.stderr);
+  assert.equal(refreshed.stdout, 'init refresh: re-attested src/example.js (sha256 moved)\n');
+  const nextIdentity = JSON.parse(await readFile(box.identityPath, 'utf8'));
+  assert.equal(nextIdentity.installId, priorInstallId);
+  assert.equal(nextIdentity.files['src/example.js'], bytesSha(await readFile(box.sourcePath)));
+  assert.notDeepEqual(await readFile(box.identityPath), beforeIdentity);
+  for (let index = 0; index < box.managedPaths.length; index += 1) {
+    assert.deepEqual(await readFile(box.managedPaths[index]), beforeManaged[index], box.managedPaths[index]);
+  }
+});
+
+test('init --refresh without a manifest resolves to refusal and writes nothing', async () => {
+  const box = await refreshFixture({ manifest: false });
+  const before = await treeSha(box.base);
+  let refused;
+  await assert.doesNotReject(async () => {
+    refused = await runInitDirect(['--refresh'], box.ctx);
+  });
+  assert.equal(refused.code, 1);
+  assert.equal(refused.stderr, 'init refresh: identity manifest is absent; run ast init\n');
+  assert.equal(await treeSha(box.base), before);
+});
+
+test('init --refresh refuses malformed manifests as values and writes nothing', async () => {
+  const box = await refreshFixture();
+  const malformed = [
+    ['unparseable', '{not-json\n'],
+    ['invalid shape', `${JSON.stringify({ installId: 'KEEP', installPath: box.root, files: { 'src/example.js': 17 } })}\n`],
+  ];
+  for (const [label, bytes] of malformed) {
+    await writeFile(box.identityPath, bytes);
+    const before = await treeSha(box.base);
+    let refused;
+    await assert.doesNotReject(async () => {
+      refused = await runInitDirect(['--refresh'], box.ctx);
+    }, label);
+    assert.equal(refused.code, 1, label);
+    assert.match(refused.stderr, /run ast init/, label);
+    assert.equal(await treeSha(box.base), before, label);
+  }
+});
+
+test('init --refresh resolves store schema and permission guards before writing identity', async () => {
+  for (const guard of ['schema', 'permissions']) {
+    const box = await refreshFixture();
+    await writeFile(box.sourcePath, 'export const example = 4;\n');
+    if (guard === 'schema') await writeFile(path.join(box.stateDir, 'schema-version'), '2\n');
+    else await chmod(box.stateDir, 0o755);
+    const beforeIdentity = await readFile(box.identityPath);
+    let refused;
+    await assert.doesNotReject(async () => {
+      refused = await runInitDirect(['--refresh'], box.ctx);
+    }, guard);
+    assert.equal(refused.code, 1, guard);
+    assert.deepEqual(await readFile(box.identityPath), beforeIdentity, guard);
+  }
+});
+
+test('init --refresh --dry-run names changed source and writes nothing', async () => {
+  const box = await refreshFixture();
+  await writeFile(box.sourcePath, 'export const example = 3;\n');
+  const before = await treeSha(box.base);
+  const dry = await runInitDirect(['--refresh', '--dry-run'], box.ctx);
+  assert.equal(dry.code, 0, dry.stderr);
+  assert.equal(dry.stdout, 'init refresh: would re-attest src/example.js (sha256 moved)\n');
+  assert.equal(await treeSha(box.base), before);
+
+  const rejected = await runInitDirect(['--refresh', '--dry-run', '--other'], box.ctx);
+  assert.equal(rejected.code, 2);
+  assert.match(rejected.stderr, /^usage: ast init/);
 });

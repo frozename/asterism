@@ -2,28 +2,37 @@ import { access, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { listVerbs } from '../router.js';
+import { STRONG_WITNESSES } from '../../core/binding.js';
 import { collectObservations } from '../../io/discover.js';
 import { buildIdentityManifest } from '../../io/identity.js';
 import * as cfgedit from '../../io/cfgedit.js';
 import {
   DEFAULT_CONFIG_TOML,
   openStore,
+  readBindings,
   resolveConfigDir,
   resolveStateDir,
   writeJsonAtomic,
   writeTextAtomic,
 } from '../../io/store.js';
+import { serverInfo } from '../../io/tmuxexec.js';
+import { resolveServers } from '../../io/tmuxsock.js';
 
 export const mutating = true;
 export const summary = 'install asterism state, hooks, keybindings, and completion';
 
-const USAGE = 'usage: ast init [--dry-run]\n';
+const USAGE = 'usage: ast init [--dry-run] [--refresh]\n';
 const BLOCK_ID = 'cockpit-keys';
+const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 function parseArgs(argv) {
-  if (argv.length === 0) return { dryRun: false };
-  if (argv.length === 1 && argv[0] === '--dry-run') return { dryRun: true };
-  return null;
+  const options = { dryRun: false, refresh: false };
+  for (const arg of argv) {
+    if (arg === '--dry-run' && options.dryRun === false) options.dryRun = true;
+    else if (arg === '--refresh' && options.refresh === false) options.refresh = true;
+    else return null;
+  }
+  return options;
 }
 
 async function readIfPresent(filePath) {
@@ -57,6 +66,55 @@ function previousInstallId(bytes) {
 
 function manifestBytes(manifest) {
   return Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+function refreshRefusal(message) {
+  process.stderr.write(`init refresh: ${message}; run ast init\n`);
+  return 1;
+}
+
+function validIdentityManifest(value) {
+  return value !== null &&
+    typeof value === 'object' &&
+    typeof value.installId === 'string' &&
+    typeof value.installPath === 'string' &&
+    value.files !== null &&
+    typeof value.files === 'object' &&
+    !Array.isArray(value.files) &&
+    Object.values(value.files).every((digest) => typeof digest === 'string' && SHA256_HEX.test(digest));
+}
+
+async function refreshIdentity({ dryRun, root, identityPath, env }) {
+  const existingIdentity = await readIfPresent(identityPath);
+  if (existingIdentity === null) return refreshRefusal('identity manifest is absent');
+
+  let previous;
+  try {
+    previous = JSON.parse(existingIdentity.toString('utf8'));
+  } catch {
+    return refreshRefusal('identity manifest is unparseable');
+  }
+  if (!validIdentityManifest(previous)) return refreshRefusal('identity manifest has an invalid shape');
+
+  const next = await buildIdentityManifest({ root, previousInstallId: previous.installId });
+  const movedPaths = [...new Set([...Object.keys(previous.files), ...Object.keys(next.files)])]
+    .filter((relativePath) => previous.files[relativePath] !== next.files[relativePath])
+    .sort();
+  const nextIdentity = manifestBytes(next);
+  if (!dryRun && !existingIdentity.equals(nextIdentity)) {
+    try {
+      await openStore({ env });
+    } catch (error) {
+      process.stderr.write(`init refresh: ${error?.message ?? error}\n`);
+      return 1;
+    }
+    await writeJsonAtomic(identityPath, next);
+  }
+  for (const relativePath of movedPaths) {
+    process.stdout.write(`init refresh: ${dryRun ? 'would re-attest' : 're-attested'} ${relativePath} (sha256 moved)\n`);
+  }
+  if (movedPaths.length === 0) process.stdout.write('init refresh: no file sha256 moved\n');
+  return 0;
 }
 
 async function tmuxConfigPath(env, home) {
@@ -94,7 +152,7 @@ function printInit(action, rollback, dryRun) {
   process.stdout.write(`init: ${dryRun ? 'would ' : ''}${action} -- rollback: ${rollback}\n`);
 }
 
-async function printRestartSessions(ctx, env, home) {
+async function printRestartSessions(ctx, env, home, stateDir) {
   const sessions = new Map();
   for (const adapter of ctx.adapters.values()) {
     const { observations } = await collectObservations(adapter, { env, home });
@@ -109,7 +167,32 @@ async function printRestartSessions(ctx, env, home) {
     process.stdout.write('no running sessions need a restart\n');
     return;
   }
-  for (const { adapter, sessionId } of sessions.values()) {
+
+  const { records: bindings } = await readBindings(stateDir);
+  const probedPids = new Map();
+  const servers = await resolveServers({
+    env,
+    uid: process.getuid(),
+    probe: async ({ socketPath, env: probeEnv }) => {
+      const result = await serverInfo({ socketPath, env: probeEnv });
+      if (result.ok === true) probedPids.set(socketPath, result.pid);
+      return result;
+    },
+  });
+  const liveServerPids = new Set(servers.map((server) => probedPids.get(server.socketPath)).filter(Number.isInteger));
+  const needsRestart = [...sessions.values()].filter(({ adapter, sessionId }) =>
+    !bindings.some(({ record }) =>
+      record.adapter === adapter &&
+      record.sessionId === sessionId &&
+      STRONG_WITNESSES.includes(record.by) &&
+      liveServerPids.has(record.serverPid),
+    ),
+  );
+  if (needsRestart.length === 0) {
+    process.stdout.write('no running sessions need a restart\n');
+    return;
+  }
+  for (const { adapter, sessionId } of needsRestart) {
     process.stdout.write(`restart to become bindable: ${adapter} ${sessionId}\n`);
   }
 }
@@ -128,6 +211,10 @@ export async function run(argv, ctx) {
   const configPath = path.join(configDir, 'config.toml');
   const identityPath = path.join(stateDir, 'identity.json');
   const completionPath = path.join(configDir, '_ast');
+
+  if (options.refresh) {
+    return refreshIdentity({ dryRun: options.dryRun, root: ctx.root, identityPath, env });
+  }
 
   if (options.dryRun) {
     const storeReady =
@@ -220,6 +307,6 @@ export async function run(argv, ctx) {
     false,
   );
   process.stdout.write(`add fpath=(${configDir} $fpath) and run compinit\n`);
-  await printRestartSessions(ctx, env, home);
+  await printRestartSessions(ctx, env, home, store.stateDir);
   return 0;
 }
