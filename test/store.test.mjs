@@ -16,7 +16,9 @@ import {
   checkRetentionCounts,
   checkTargetsAreIds,
   DEFAULT_CONFIG_TOML,
+  readBindings,
   readConfig,
+  readSessions,
   resolveConfigDir,
   resolveStateDir,
   RETENTION_DEFAULTS,
@@ -31,6 +33,50 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 async function tmpDir(prefix) {
   return mkdtemp(path.join(os.tmpdir(), prefix));
 }
+
+test('state readers return valid records and report corrupt entries', async () => {
+  const stateDir = await tmpDir('ast-store-readers-');
+  for (const [subdir, extension, reader] of [
+    ['sessions', '.json', readSessions],
+    ['bindings', '.bind', readBindings],
+  ]) {
+    const dir = path.join(stateDir, subdir);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, `good${extension}`), JSON.stringify({ id: 'ok' }));
+    writeFileSync(path.join(dir, `bad${extension}`), '{ nope');
+
+    const result = await reader(stateDir);
+    assert.deepEqual(result.records, [{ file: `good${extension}`, record: { id: 'ok' } }]);
+    assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].file, `bad${extension}`);
+    assert.ok(result.errors[0].reason.length > 0);
+    assert.equal(Object.isFrozen(result), true);
+    assert.equal(Object.isFrozen(result.records[0]), true);
+    assert.equal(Object.isFrozen(result.errors[0]), true);
+  }
+});
+
+test('state readers treat absent directories as empty', async () => {
+  const stateDir = await tmpDir('ast-store-readers-empty-');
+  assert.deepEqual(await readSessions(stateDir), { records: [], errors: [] });
+  assert.deepEqual(await readBindings(stateDir), { records: [], errors: [] });
+});
+
+test('state readers report non-object JSON instead of returning it', async () => {
+  const stateDir = await tmpDir('ast-store-readers-shape-');
+  for (const [subdir, extension, reader, value] of [
+    ['sessions', '.json', readSessions, [1, 2]],
+    ['bindings', '.bind', readBindings, 'x'],
+  ]) {
+    const dir = path.join(stateDir, subdir);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, `wrong${extension}`), JSON.stringify(value));
+    const result = await reader(stateDir);
+    assert.deepEqual(result.records, []);
+    assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].file, `wrong${extension}`);
+  }
+});
 
 // Every scenario below that needs a real openStore/writeTextAtomic call
 // against real files runs inside this ONE child process instead of one

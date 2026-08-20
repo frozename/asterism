@@ -28,12 +28,14 @@ async function runAst(args, envOverrides = {}) {
   }
 }
 
-test('no verb prints usage on stderr and exits 2', async () => {
-  const { code, stdout, stderr } = await runAst([]);
-  assert.equal(code, 2);
-  assert.equal(stdout, '');
-  assert.match(stderr.toLowerCase(), /usage/);
-  assert.match(stderr, /version/);
+test('bare ast runs ls', async () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), 'ast-cli-bare-home-'));
+  const emptyPath = mkdtempSync(path.join(os.tmpdir(), 'ast-cli-bare-path-'));
+  const state = mkdtempSync(path.join(os.tmpdir(), 'ast-cli-bare-state-'));
+  const env = { PATH: emptyPath, HOME: home, XDG_STATE_HOME: state, TERM: 'dumb' };
+  const { stdout, stderr } = await execFileAsync(process.execPath, [AST_BIN], { cwd: ROOT, encoding: 'utf8', env });
+  assert.equal(stdout.split('\n')[0], '0 sessions · 0 need you');
+  assert.match(stderr, /note: .*: adapter-unavailable:/);
 });
 
 test('ast version prints the package.json version and exits 0', async () => {

@@ -1,0 +1,28 @@
+{
+  "$id": "asterism:schema/session-1",
+  "version": 1,
+  "title": "asterism session index document",
+  "type": "object",
+  "required": ["version", "sessions"],
+  "properties": {
+    "version": { "const": 1 },
+    "writtenAt": { "type": "string" },
+    "sessions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "adapter", "sessionId", "status", "lastSeen"],
+        "properties": {
+          "id": { "type": "string" },
+          "adapter": { "type": "string" },
+          "sessionId": { "type": "string" },
+          "status": { "type": ["string", "null"] },
+          "waitingFor": { "type": ["string", "null"] },
+          "lastSeen": { "type": "number" },
+          "writeDisabled": { "type": "boolean" },
+          "reason": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}

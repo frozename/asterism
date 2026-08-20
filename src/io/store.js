@@ -566,3 +566,47 @@ export async function checkAttentionStuck({ stateDir }) {
   if (stuck.length > 0) return { status: 'fail', detail: stuck.join(', ') };
   return { status: 'pass', detail: `${names.length} session(s) checked, none stuck` };
 }
+
+function finishRead(records, errors) {
+  return Object.freeze({ records: Object.freeze(records), errors: Object.freeze(errors) });
+}
+
+function reportReadError(errors, file, reason) {
+  errors.push(Object.freeze({ file, reason }));
+}
+
+async function readRecords(stateDir, subdir, extension) {
+  const records = [];
+  const errors = [];
+  const dirPath = path.join(stateDir, subdir);
+  let names;
+  try {
+    names = await readdir(dirPath);
+  } catch (error) {
+    if (error.code === 'ENOENT') return finishRead(records, errors);
+    reportReadError(errors, dirPath, error instanceof Error ? error.message : String(error));
+    return finishRead(records, errors);
+  }
+
+  for (const name of names.filter((entry) => entry.endsWith(extension)).sort()) {
+    try {
+      const record = JSON.parse(await readFile(path.join(dirPath, name), 'utf8'));
+      if (record === null || typeof record !== 'object' || Array.isArray(record)) {
+        throw new TypeError('record must be a plain object');
+      }
+      records.push(Object.freeze({ file: name, record }));
+    } catch (error) {
+      reportReadError(errors, name, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return finishRead(records, errors);
+}
+
+export async function readSessions(stateDir) {
+  return readRecords(stateDir, 'sessions', '.json');
+}
+
+export async function readBindings(stateDir) {
+  return readRecords(stateDir, 'bindings', '.bind');
+}

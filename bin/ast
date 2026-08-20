@@ -20,8 +20,8 @@ async function main(argv) {
   const [verbName, ...rest] = argv;
 
   if (typeof verbName !== 'string') {
-    await printUsage();
-    return 2;
+    const verb = await loadVerb('ls', VERBS_DIR);
+    return verb.run([], { env: process.env, adapters, root: ROOT });
   }
 
   const verb = await loadVerb(verbName, VERBS_DIR);

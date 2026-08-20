@@ -322,4 +322,30 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/discover.test.mjs']),
     why: 'a foreign file in the registry dir must never become a session row',
   }),
+
+  // --- T8 mutants
+  Object.freeze({
+    id: 'MUT-LS-EXIT-ZERO',
+    file: 'src/cli/verbs/ls.js',
+    find: `  return Math.min(waiting, 125);`,
+    replace: `  return 0;`,
+    claimedBy: Object.freeze(['test/ls.test.mjs']),
+    why: 'an exit code that stops counting waiting sessions silently blinds every scripted consumer of ast ls',
+  }),
+  Object.freeze({
+    id: 'MUT-LS-SORT-UNSORTED',
+    file: 'src/cli/verbs/ls.js',
+    find: `  const sorted = [...records].sort(compareRecords);`,
+    replace: `  const sorted = [...records];`,
+    claimedBy: Object.freeze(['test/ls.test.mjs']),
+    why: 'blocked-first is the product; an unsorted table hides the row that needs the human',
+  }),
+  Object.freeze({
+    id: 'MUT-STORE-READ-SILENT-SKIP',
+    file: 'src/io/store.js',
+    find: `  errors.push(Object.freeze({ file, reason }));`,
+    replace: ``,
+    claimedBy: Object.freeze(['test/store.test.mjs']),
+    why: 'a reader that skips a corrupt record silently turns state corruption into a session that simply vanishes from ast ls',
+  }),
 ]);

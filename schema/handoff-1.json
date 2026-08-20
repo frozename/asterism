@@ -1,0 +1,14 @@
+{
+  "$id": "asterism:schema/handoff-1",
+  "version": 1,
+  "title": "asterism handoff document",
+  "type": "object",
+  "required": ["id", "sessionRef", "createdAt", "prose"],
+  "properties": {
+    "id": { "type": "string" },
+    "sessionRef": { "type": "string" },
+    "createdAt": { "type": "string" },
+    "prose": { "type": "string" },
+    "priority": { "enum": ["low", "normal", "high"] }
+  }
+}
