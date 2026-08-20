@@ -89,7 +89,7 @@ gatedTest(
       if (recordedSocketPath !== null) {
         rmSync(recordedSocketPath, { force: true });
       }
-      rmSync(home, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   },
 );

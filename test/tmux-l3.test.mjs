@@ -173,7 +173,7 @@ test('l3Gate: a successful probe removes its residual socket and tolerates diagn
     assert.equal(socketPath === null, false);
     assert.equal(existsSync(socketPath), false);
   } finally {
-    rmSync(socketDir, { recursive: true, force: true });
+    rmSync(socketDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -221,7 +221,7 @@ test('l3Gate: ambiguous permission errors cannot confirm shutdown or unlink a li
     assert.match(result.reason, /permission denied/);
     assert.equal(existsSync(socketPath), true, 'an ambiguously live socket must not be unlinked');
   } finally {
-    rmSync(socketDir, { recursive: true, force: true });
+    rmSync(socketDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -247,7 +247,7 @@ test('l3Gate: a partial failed boot with a reported socket is cleaned before ret
     assert.match(result.reason, /partial boot failed/);
     assert.equal(existsSync(socketPath), false);
   } finally {
-    rmSync(socketDir, { recursive: true, force: true });
+    rmSync(socketDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -272,7 +272,7 @@ test('l3Gate: a partial boot and socket-removal failure retain both error detail
     assert.match(result.reason, /partial boot failed/);
     assert.match(result.reason, /failed to remove probe socket/);
   } finally {
-    rmSync(socketDir, { recursive: true, force: true });
+    rmSync(socketDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
