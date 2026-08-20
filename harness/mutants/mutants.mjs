@@ -436,4 +436,30 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/doctor.test.mjs']),
     why: 'an unknown result outside the counts object renders the summary as NaN and vanishes from the one line a human reads',
   }),
+
+  // --- T13 mutants
+  Object.freeze({
+    id: 'MUT-LIFECYCLE-PARK-IDEMPOTENT',
+    file: 'src/core/lifecycle.js',
+    find: `  Parked: Object.freeze({ unpark: 'Live', archive: 'Archived' }),`,
+    replace: `  Parked: Object.freeze({ park: 'Parked', unpark: 'Live', archive: 'Archived' }),`,
+    claimedBy: Object.freeze(['test/lifecycle.test.mjs']),
+    why: 'silently accepting a repeated park discards the refusal that tells the human the session was already parked',
+  }),
+  Object.freeze({
+    id: 'MUT-LIFECYCLE-ARCHIVED-NOT-ABSORBING',
+    file: 'src/core/lifecycle.js',
+    find: `  Archived: Object.freeze({}),`,
+    replace: `  Archived: Object.freeze({ unpark: 'Live' }),`,
+    claimedBy: Object.freeze(['test/lifecycle.test.mjs']),
+    why: 'an archived session must stay absorbing while Phase 2 exposes no unarchive control',
+  }),
+  Object.freeze({
+    id: 'MUT-LIFECYCLE-UNKNOWN-STATE-DEFAULT',
+    file: 'src/core/lifecycle.js',
+    find: `    throw new TypeError(\`lifecycle: unknown state "\${state}"\`);`,
+    replace: `    return;\n    throw new TypeError(\`lifecycle: unknown state "\${state}"\`);`,
+    claimedBy: Object.freeze(['test/lifecycle.test.mjs']),
+    why: 'defaulting an unknown state turns a vocabulary defect into an unrelated result or runtime error',
+  }),
 ]);
