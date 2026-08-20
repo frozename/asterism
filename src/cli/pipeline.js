@@ -3,7 +3,7 @@ import { compareRecords, reconcile } from '../core/reconcile.js';
 import { createUlidMinter } from '../core/ulid.js';
 import { collectObservations } from '../io/discover.js';
 import { processTable } from '../io/procs.js';
-import { readBindings, readSessions, sweepRetention } from '../io/store.js';
+import { readArchive, readBindings, readSessions, sweepRetention } from '../io/store.js';
 import { buildIndexPayload, writeSeamIndex } from '../seam/index.js';
 
 function note(adapter, name, detail) {
@@ -145,13 +145,38 @@ export async function collectSessions({ env, adapters, home, store, now = Date.n
     }
   }
 
+  // Archive suppression is a tombstone step, separate from owned-field
+  // merging below: a still-running vendor session must not be minted anew.
+  const archive = await readArchive(store.stateDir);
+  for (const error of archive.errors) {
+    notes.push(note('store', 'archive-unreadable', `${error.file}: ${error.reason}`));
+  }
+  const archivedBySession = new Map();
+  for (const entry of archive.records) {
+    const record = entry.record;
+    if (
+      typeof record?.id === 'string' &&
+      typeof record?.adapter === 'string' &&
+      typeof record?.agent?.sessionId === 'string'
+    ) {
+      archivedBySession.set(sessionKey(record.adapter, record.agent.sessionId), record.id);
+    }
+  }
+
   const defaultMint = createUlidMinter({ now: () => now, random: randomBytes });
-  const reconciled = await reconcile(observations, { now, mint: mint ?? defaultMint });
+  const mintActive = mint ?? defaultMint;
+  const reconciled = await reconcile(observations, {
+    now,
+    mint: (adapter, sessionId) => archivedBySession.get(sessionKey(adapter, sessionId)) ?? mintActive(),
+  });
   const prior = await readSessions(store.stateDir);
   for (const error of prior.errors) {
     notes.push(note('store', 'session-unreadable', `${error.file}: ${error.reason}`));
   }
-  const records = stableIds(reconciled.records, prior.records);
+  const active = reconciled.records.filter(
+    (record) => !archivedBySession.has(sessionKey(record.adapter, record.agent.sessionId)),
+  );
+  const records = stableIds(active, prior.records);
 
   for (const record of records) await store.writeSession(record.id, record);
   for (const canary of reconciled.canaries) {

@@ -150,6 +150,29 @@ test('formatLs sorts deliberately shuffled records blocked first', () => {
   assert.match(lines[3], /^idle\s/);
 });
 
+test('formatLs marks archived status without adding a column or counting archived waiting', () => {
+  const archived = {
+    ...syntheticRecord('archived-id', 'archived-session', 'waiting', 1),
+    lifecycle: 'Archived',
+  };
+  const output = formatLs([archived]);
+  const row = output.trimEnd().split('\n')[1];
+  const liveRow = formatLs([{ ...archived, lifecycle: 'Live' }]).trimEnd().split('\n')[1];
+
+  assert.equal(output.split('\n')[0], '1 session · 0 need you');
+  assert.match(row, /^archived\s+fake\s+archived-id\s+/);
+  assert.equal(row.trim().split(/\s{2,}/).length, liveRow.trim().split(/\s{2,}/).length);
+});
+
+test('ls accepts --all while an unknown flag still returns the updated usage', async () => {
+  const accepted = await runAst(['--all']);
+  assert.equal(accepted.code, 0, accepted.stderr);
+
+  const refused = await runAst(['--everything']);
+  assert.equal(refused.code, 2);
+  assert.match(refused.stderr, /usage: ast ls \[--all\]/);
+});
+
 test('formatLs displays asterism name, then vendor name, then id without adding a column', () => {
   const output = formatLs([
     {
@@ -278,6 +301,7 @@ test('watch iteration cap renders once with normal exit and SIGINT stops an unca
     });
   });
   assert.match(stdout, /1 session · 0 need you/);
+  assert.match(stdout, /^idle\s+fake\s+\S+/m);
   assert.equal(code, 0);
 });
 

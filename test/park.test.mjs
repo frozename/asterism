@@ -176,6 +176,22 @@ test('lifecycle runs resolve shaped refusals instead of rejecting on illegal tra
   }
 });
 
+test('lifecycle runs resolve unknown lifecycle refusals with the session and offending value', async () => {
+  for (const { verb, run } of [
+    { verb: 'park', run: runPark },
+    { verb: 'unpark', run: runUnpark },
+  ]) {
+    const box = await setupRecord('Zombie');
+    const before = await readFile(box.filePath);
+
+    const result = await runDirect(run, 'fake-0001', box.env);
+
+    assert.equal(result.code, 1);
+    assert.equal(result.stderr, `ast ${verb}: fake-0001: Zombie: lifecycle: unknown state "Zombie"\n`);
+    assert.deepEqual(await readFile(box.filePath), before);
+  }
+});
+
 test('an inconsistent unrelated record does not block a healthy lifecycle transition', async () => {
   for (const { run, lifecycle, expected } of [
     { run: runPark, lifecycle: 'Live', expected: 'Parked' },
@@ -203,19 +219,19 @@ test('an inconsistent unrelated record does not block a healthy lifecycle transi
 });
 
 test('an inconsistent target is rejected before its lifecycle or bytes change', async () => {
-  for (const { run, lifecycle, parked } of [
-    { run: runPark, lifecycle: 'Live', parked: true },
-    { run: runUnpark, lifecycle: 'Parked', parked: false },
+  for (const { verb, run, lifecycle, parked } of [
+    { verb: 'park', run: runPark, lifecycle: 'Live', parked: true },
+    { verb: 'unpark', run: runUnpark, lifecycle: 'Parked', parked: false },
   ]) {
     const box = await setupRecord(lifecycle);
     box.record.flags.parked = parked;
     await box.store.writeSession(box.record.id, box.record);
     const before = await readFile(box.filePath);
 
-    await assert.rejects(
-      () => runDirect(run, 'fake-0001', box.env),
-      { message: `lifecycle invariant failed for ${box.record.id}` },
-    );
+    const result = await runDirect(run, 'fake-0001', box.env);
+
+    assert.equal(result.code, 1);
+    assert.equal(result.stderr, `ast ${verb}: fake-0001: ${lifecycle}: lifecycle invariant failed for ${box.record.id}\n`);
     assert.deepEqual(await readFile(box.filePath), before);
   }
 });

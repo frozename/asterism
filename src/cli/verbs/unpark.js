@@ -1,4 +1,5 @@
 import { resolveSessionRef } from '../pipeline.js';
+import { LifecycleVocabularyError } from '../../core/lifecycle.js';
 import { applyLifecycle } from '../../core/parkstate.js';
 import { openStore, readSessions } from '../../io/store.js';
 
@@ -18,6 +19,10 @@ function assertInvariant(record) {
   }
 }
 
+function shapedTargetRefusal(record, state, error) {
+  return `${record.agent.sessionId}: ${state}: ${error instanceof Error ? error.message : String(error)}`;
+}
+
 export async function run(argv, ctx) {
   if (argv.length !== 1) {
     process.stderr.write(USAGE);
@@ -30,12 +35,19 @@ export async function run(argv, ctx) {
   if (resolved.error) return refusal(resolved.error);
 
   const record = resolved.record;
-  assertInvariant(record);
   const state = record.lifecycle ?? 'Live';
+  try {
+    assertInvariant(record);
+  } catch (error) {
+    return refusal(shapedTargetRefusal(record, state, error));
+  }
   let updated;
   try {
     updated = applyLifecycle(record, 'unpark', { at: Date.now() });
   } catch (error) {
+    if (error instanceof LifecycleVocabularyError) {
+      return refusal(shapedTargetRefusal(record, state, error));
+    }
     assertInvariant(record);
     return refusal(`${state}: ${error instanceof Error ? error.message : String(error)}`);
   }

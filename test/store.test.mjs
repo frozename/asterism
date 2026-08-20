@@ -16,6 +16,7 @@ import {
   checkRetentionCounts,
   checkTargetsAreIds,
   DEFAULT_CONFIG_TOML,
+  readArchive,
   readBindings,
   readConfig,
   readSessions,
@@ -38,6 +39,7 @@ test('state readers return valid records and report corrupt entries', async () =
   const stateDir = await tmpDir('ast-store-readers-');
   for (const [subdir, extension, reader] of [
     ['sessions', '.json', readSessions],
+    ['archive', '.json', readArchive],
     ['bindings', '.bind', readBindings],
   ]) {
     const dir = path.join(stateDir, subdir);
@@ -59,6 +61,7 @@ test('state readers return valid records and report corrupt entries', async () =
 test('state readers treat absent directories as empty', async () => {
   const stateDir = await tmpDir('ast-store-readers-empty-');
   assert.deepEqual(await readSessions(stateDir), { records: [], errors: [] });
+  assert.deepEqual(await readArchive(stateDir), { records: [], errors: [] });
   assert.deepEqual(await readBindings(stateDir), { records: [], errors: [] });
 });
 
@@ -66,6 +69,7 @@ test('state readers report non-object JSON instead of returning it', async () =>
   const stateDir = await tmpDir('ast-store-readers-shape-');
   for (const [subdir, extension, reader, value] of [
     ['sessions', '.json', readSessions, [1, 2]],
+    ['archive', '.json', readArchive, null],
     ['bindings', '.bind', readBindings, 'x'],
   ]) {
     const dir = path.join(stateDir, subdir);

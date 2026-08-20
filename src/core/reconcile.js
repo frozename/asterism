@@ -271,7 +271,7 @@ export async function reconcile(observations, { now, mint }) {
   const records = [];
   for (const key of sortedKeys) {
     const group = groups.get(key);
-    const id = mint();
+    const id = mint(group.adapter, group.sessionId);
     records.push(
       buildRecord({
         id,

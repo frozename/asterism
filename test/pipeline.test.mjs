@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,7 +9,7 @@ import fake from '../src/adapters/fake/index.js';
 import { collectSessions, resolveSessionRef, stableIds } from '../src/cli/pipeline.js';
 import { applyLifecycle } from '../src/core/parkstate.js';
 import { ULID_PATTERN } from '../src/core/ulid.js';
-import { openStore, readSessions } from '../src/io/store.js';
+import { openStore, readArchive, readSessions } from '../src/io/store.js';
 
 async function scratch(prefix) {
   return mkdtemp(path.join(os.tmpdir(), prefix));
@@ -58,6 +58,30 @@ test('collectSessions discovers fake rows and preserves their ids across persist
   assert.ok(added);
   assert.match(added.id, ULID_PATTERN);
   assert.equal([...firstIds.values()].includes(added.id), false);
+});
+
+test('collectSessions does not mint or re-materialise a still-live archived session', async () => {
+  const setupData = await setup([{ id: 'fake-0001', status: 'idle' }]);
+  const first = await collectSessions(setupData);
+  const archived = { ...first.records[0], lifecycle: 'Archived' };
+  await setupData.store.archiveSession(archived.id, archived);
+  const archiveFile = path.join(setupData.store.stateDir, 'archive', `${archived.id}.json`);
+  const archiveBefore = await readFile(archiveFile);
+  let mintCalls = 0;
+
+  const second = await collectSessions({
+    ...setupData,
+    mint: () => {
+      mintCalls += 1;
+      return '01ARZ3NDEKTSV4RRFFQ69G5FAA';
+    },
+  });
+
+  assert.equal(mintCalls, 0);
+  assert.deepEqual(second.records, []);
+  assert.deepEqual(await readdir(path.join(setupData.store.stateDir, 'sessions')), []);
+  assert.deepEqual(await readFile(archiveFile), archiveBefore);
+  assert.equal((await readArchive(setupData.store.stateDir)).records.length, 1);
 });
 
 test('stableIds re-keys matching records and leaves a new group untouched', () => {
@@ -143,6 +167,25 @@ test('binding spool increments generation and corrupt bindings are reported with
   const degraded = await collectSessions(setupData);
   assert.equal(degraded.records.length, 2);
   assert.ok(degraded.notes.some((note) => note.note === 'binding-unreadable' && note.detail.includes('corrupt.bind')));
+});
+
+test('collectSessions reports unreadable archive records without losing live sessions', async () => {
+  const setupData = await setup([{ id: 'fake-0001', status: 'idle' }]);
+  await writeFile(path.join(setupData.store.stateDir, 'archive', 'broken.json'), '{ nope');
+
+  const degraded = await collectSessions(setupData);
+
+  assert.equal(degraded.records.length, 1);
+  assert.ok(
+    degraded.notes.some(
+      (note) =>
+        note.adapter === 'store' &&
+        note.note === 'archive-unreadable' &&
+        note.detail.startsWith('broken.json: ') &&
+        note.detail.length > 'broken.json: '.length,
+    ),
+    JSON.stringify(degraded.notes),
+  );
 });
 
 test('unavailable argv adapter becomes a note while function adapter rows remain', async () => {

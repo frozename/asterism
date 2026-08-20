@@ -198,6 +198,22 @@ export async function openStore({ env }) {
       await writeJsonAtomic(path.join(stateDir, 'sessions', `${ulid}.json`), record);
     },
 
+    async archiveSession(ulid, record, { beforeRemove } = {}) {
+      assertSafeName(ulid, 'archiveSession');
+      const sourcePath = path.join(stateDir, 'sessions', `${ulid}.json`);
+      const archivePath = path.join(stateDir, 'archive', `${ulid}.json`);
+      const bytes = `${JSON.stringify(record, null, 2)}\n`;
+
+      // The durable archive copy lands first. A crash before source removal
+      // therefore leaves two readable copies, which is the safe failure side.
+      await writeTextAtomic(archivePath, bytes);
+      if (beforeRemove) await beforeRemove(archivePath);
+      if ((await readFile(archivePath, 'utf8')) !== bytes) {
+        throw new Error(`archiveSession: archive verification failed for ${ulid}`);
+      }
+      await unlink(sourcePath);
+    },
+
     async writeBinding(ulid, binding) {
       assertSafeName(ulid, 'writeBinding');
       if (typeof binding?.target !== 'string' || !TARGET_PATTERN.test(binding.target)) {
@@ -605,6 +621,10 @@ async function readRecords(stateDir, subdir, extension) {
 
 export async function readSessions(stateDir) {
   return readRecords(stateDir, 'sessions', '.json');
+}
+
+export async function readArchive(stateDir) {
+  return readRecords(stateDir, 'archive', '.json');
 }
 
 export async function readBindings(stateDir) {

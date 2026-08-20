@@ -3,18 +3,20 @@ import { setTimeout } from 'node:timers/promises';
 import { collectSessions, sessionsPayload } from '../pipeline.js';
 import { compareRecords, statusLabel } from '../../core/reconcile.js';
 import { table, untrusted } from '../../core/render.js';
-import { openStore } from '../../io/store.js';
+import { openStore, readArchive } from '../../io/store.js';
 
 export const mutating = false;
 export const summary = 'list every discovered agent session, blocked first';
 
-const USAGE = 'usage: ast ls [--json] [--watch]\n';
+const USAGE = 'usage: ast ls [--all] [--json] [--watch]\n';
 
 function parseArgs(argv) {
-  const options = { json: false, watch: false, watchIterations: null };
+  const options = { all: false, json: false, watch: false, watchIterations: null };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === '--json') {
+    if (arg === '--all') {
+      options.all = true;
+    } else if (arg === '--json') {
       options.json = true;
     } else if (arg === '--watch') {
       options.watch = true;
@@ -30,12 +32,16 @@ function parseArgs(argv) {
   return options;
 }
 
+function needsAttention(record) {
+  return record.lifecycle !== 'Archived' && record.observed.status === 'waiting';
+}
+
 export function formatLs(records, { maxWidth = 40 } = {}) {
   const sorted = [...records].sort(compareRecords);
-  const waiting = sorted.filter((record) => record.observed.status === 'waiting').length;
+  const waiting = sorted.filter(needsAttention).length;
   const header = `${sorted.length} ${sorted.length === 1 ? 'session' : 'sessions'} · ${waiting} ${waiting === 1 ? 'needs' : 'need'} you`;
   const rows = sorted.map((record) => [
-    statusLabel(record.observed.status),
+    record.lifecycle === 'Archived' ? 'archived' : statusLabel(record.observed.status),
     record.adapter,
     untrusted(record.name ?? record.agent.name ?? record.id, { maxWidth }),
     untrusted(record.observed.waitingFor ?? '', { maxWidth }),
@@ -66,19 +72,21 @@ export async function run(argv, ctx) {
   const store = await openStore({ env: ctx.env });
 
   async function renderOnce() {
-    const { records, notes } = await collectSessions({
+    const { records: active, notes } = await collectSessions({
       env: ctx.env,
       adapters: ctx.adapters,
       home,
       store,
     });
+    const archived = options.all ? (await readArchive(store.stateDir)).records.map((entry) => entry.record) : [];
+    const records = [...active, ...archived];
     emitNotes(notes);
     if (options.json) {
       process.stdout.write(`${JSON.stringify(sessionsPayload(records), null, 2)}\n`);
     } else {
       process.stdout.write(formatLs(records));
     }
-    return records.filter((record) => record.observed.status === 'waiting').length;
+    return records.filter(needsAttention).length;
   }
 
   if (!options.watch) {
