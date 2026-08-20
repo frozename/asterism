@@ -1,0 +1,194 @@
+[
+  {
+    "id": "hash",
+    "input": "#",
+    "inputWidth": 1,
+    "sanitizedWidth": 1,
+    "mustNotContain": [
+      [
+        0,
+        31
+      ],
+      [
+        127,
+        159
+      ]
+    ]
+  },
+  {
+    "id": "semicolon",
+    "input": ";",
+    "inputWidth": 1,
+    "sanitizedWidth": 1,
+    "mustNotContain": [
+      [
+        0,
+        31
+      ],
+      [
+        127,
+        159
+      ]
+    ]
+  },
+  {
+    "id": "command-sub",
+    "input": "$(id)",
+    "inputWidth": 5,
+    "sanitizedWidth": 5,
+    "mustNotContain": [
+      [
+        0,
+        31
+      ],
+      [
+        127,
+        159
+      ]
+    ]
+  },
+  {
+    "id": "glob",
+    "input": "*",
+    "inputWidth": 1,
+    "sanitizedWidth": 1,
+    "mustNotContain": [
+      [
+        0,
+        31
+      ],
+      [
+        127,
+        159
+      ]
+    ]
+  },
+  {
+    "id": "newline",
+    "input": "bad\nname",
+    "inputWidth": null,
+    "sanitizedWidth": 8,
+    "mustNotContain": [
+      [
+        0,
+        31
+      ],
+      [
+        127,
+        159
+      ]
+    ]
+  },
+  {
+    "id": "osc2",
+    "input": "\u001b]2;owned\u0007x",
+    "inputWidth": null,
+    "sanitizedWidth": 11,
+    "mustNotContain": [
+      [
+        0,
+        31
+      ],
+      [
+        127,
+        159
+      ]
+    ]
+  },
+  {
+    "id": "csi",
+    "input": "\u001b[31mred",
+    "inputWidth": null,
+    "sanitizedWidth": 8,
+    "mustNotContain": [
+      [
+        0,
+        31
+      ],
+      [
+        127,
+        159
+      ]
+    ]
+  },
+  {
+    "id": "long-300",
+    "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "inputWidth": 300,
+    "sanitizedWidth": 300,
+    "mustNotContain": [
+      [
+        0,
+        31
+      ],
+      [
+        127,
+        159
+      ]
+    ]
+  },
+  {
+    "id": "zwj-family",
+    "input": "👩‍👩‍👧",
+    "inputWidth": 6,
+    "sanitizedWidth": 6,
+    "mustNotContain": [
+      [
+        0,
+        31
+      ],
+      [
+        127,
+        159
+      ]
+    ]
+  },
+  {
+    "id": "flag-pair",
+    "input": "🇧🇷",
+    "inputWidth": 2,
+    "sanitizedWidth": 2,
+    "mustNotContain": [
+      [
+        0,
+        31
+      ],
+      [
+        127,
+        159
+      ]
+    ]
+  },
+  {
+    "id": "combining",
+    "input": "éx",
+    "inputWidth": 2,
+    "sanitizedWidth": 2,
+    "mustNotContain": [
+      [
+        0,
+        31
+      ],
+      [
+        127,
+        159
+      ]
+    ]
+  },
+  {
+    "id": "cjk",
+    "input": "漢字ab",
+    "inputWidth": 6,
+    "sanitizedWidth": 6,
+    "mustNotContain": [
+      [
+        0,
+        31
+      ],
+      [
+        127,
+        159
+      ]
+    ]
+  }
+]

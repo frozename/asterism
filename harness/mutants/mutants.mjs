@@ -135,6 +135,23 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/caps.test.mjs']),
     why: 'an unknown axis with no probe and no deferral gives doctor nothing to name -- validateRecord must reject it',
   }),
+  // --- T2 mutants
+  Object.freeze({
+    id: 'MUT-RENDER-ESC',
+    file: 'src/core/render.js',
+    find: `  if (codePoint <= 0x1f) return true;`,
+    replace: `  if (codePoint <= 0x1f && codePoint !== 0x1b) return true;`,
+    claimedBy: Object.freeze(['test/render.test.mjs']),
+    why: 'a renderer that lets ESC pass through untrusted() lets an agent-controlled name rewrite the user\'s terminal or spoof a prompt',
+  }),
+  Object.freeze({
+    id: 'MUT-WIDTH-ZWJ',
+    file: 'src/core/width.js',
+    find: `export function displayWidth(str) {\n  let width = 0;\n  for (const ch of str) {\n    width += codePointWidth(ch.codePointAt(0));\n  }\n  return width;\n}`,
+    replace: `export function displayWidth(str) {\n  let width = 0;\n  for (const grapheme of new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(str)) {\n    width += codePointWidth(grapheme.segment.codePointAt(0));\n  }\n  return width;\n}`,
+    claimedBy: Object.freeze(['test/width.test.mjs']),
+    why: 'tmux sums a ZWJ-joined cluster\'s components rather than collapsing it -- the family emoji is width 6, a grapheme approximation says 2 -- and a grapheme-collapsing width mis-routes status-bar click ranges',
+  }),
 
   // --- T3 mutants
   Object.freeze({
