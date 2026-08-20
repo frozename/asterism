@@ -185,6 +185,7 @@ function scanFieldCanaries(canaryMap, adapter, fields) {
 function buildRecord({ id, adapter, sessionId, envelopes, now, canaryMap }) {
   const winners = {};
   for (const field of PROJECTED_FIELDS) winners[field] = pickFieldWinner(envelopes, field);
+  const nameWinner = pickFieldWinner(envelopes, 'name');
   const procStartWinner = pickProcStartWinner(envelopes, canaryMap, adapter);
 
   let lastSeen = -Infinity;
@@ -200,6 +201,7 @@ function buildRecord({ id, adapter, sessionId, envelopes, now, canaryMap }) {
   for (const field of PROJECTED_FIELDS) {
     if (winners[field]) prov[field] = provEntry(winners[field]);
   }
+  if (nameWinner) prov['agent.name'] = provEntry(nameWinner);
   if (procStartWinner) prov.procStart = provEntry(procStartWinner);
 
   return Object.freeze({
@@ -207,6 +209,7 @@ function buildRecord({ id, adapter, sessionId, envelopes, now, canaryMap }) {
     adapter,
     agent: Object.freeze({
       sessionId,
+      name: nameWinner ? nameWinner.value : null,
       cwd: winners.cwd ? winners.cwd.value : null,
       gitRoot: null,
       branch: null,

@@ -125,7 +125,7 @@ test('blocked-first order, singular header, waiting exit count, and cap are obse
   assert.equal(mixed.code, 1);
   const mixedLines = mixed.stdout.trimEnd().split('\n');
   assert.equal(mixedLines[0], '3 sessions · 1 needs you');
-  assert.ok(mixedLines[1].includes('waiting-one'));
+  assert.match(mixedLines[1], /^waiting\s/);
 
   const idle = await runAst([], { rows: [{ id: 'idle-one', status: 'idle' }] });
   assert.equal(idle.code, 0);
@@ -145,9 +145,43 @@ test('formatLs sorts deliberately shuffled records blocked first', () => {
     syntheticRecord('waiting-id', 'waiting-session', 'waiting', 1),
   ]);
   const lines = output.trimEnd().split('\n');
-  assert.ok(lines[1].includes('waiting-session'));
-  assert.ok(lines[2].includes('busy-session'));
-  assert.ok(lines[3].includes('idle-session'));
+  assert.match(lines[1], /^waiting\s/);
+  assert.match(lines[2], /^busy\s/);
+  assert.match(lines[3], /^idle\s/);
+});
+
+test('formatLs displays asterism name, then vendor name, then id without adding a column', () => {
+  const output = formatLs([
+    {
+      id: 'id-fallback',
+      adapter: 'fake',
+      agent: { sessionId: 'session-fallback' },
+      observed: { status: 'idle', waitingFor: 'none', lastSeen: 1 },
+      flags: { writeDisabled: true },
+    },
+    {
+      id: 'id-vendor',
+      adapter: 'fake',
+      agent: { sessionId: 'session-vendor', name: 'vendor label' },
+      observed: { status: 'idle', waitingFor: 'none', lastSeen: 2 },
+      flags: { writeDisabled: true },
+    },
+    {
+      id: 'id-owned',
+      name: 'owned label',
+      adapter: 'fake',
+      agent: { sessionId: 'session-owned', name: 'vendor ignored' },
+      observed: { status: 'idle', waitingFor: 'none', lastSeen: 3 },
+      flags: { writeDisabled: true },
+    },
+  ]);
+
+  const lines = output.split('\n');
+  assert.ok(lines[1].includes('owned label'));
+  assert.doesNotMatch(lines[1], /vendor ignored/);
+  assert.ok(lines[2].includes('vendor label'));
+  assert.ok(lines[3].includes('id-fallback'));
+  for (const line of lines.slice(1, 4)) assert.equal(line.split(/\s{2,}/).length, 5);
 });
 
 test('json includes fake sessions only when the fake root is registered', async () => {
@@ -168,8 +202,8 @@ test('null status renders unknown and writes exactly one canary', async () => {
       { id: 'fake-0002', status: null },
     ],
   });
-  const unknownLine = result.stdout.split('\n').find((line) => line.includes('fake-0002'));
-  const idleLine = result.stdout.split('\n').find((line) => line.includes('fake-0001'));
+  const unknownLine = result.stdout.split('\n').find((line) => line.startsWith('unknown'));
+  const idleLine = result.stdout.split('\n').find((line) => line.startsWith('idle'));
   assert.match(unknownLine, /^unknown\s/);
   assert.doesNotMatch(unknownLine, /^busy\s/);
   assert.match(idleLine, /^idle\s/);
@@ -235,7 +269,7 @@ test('watch iteration cap renders once with normal exit and SIGINT stops an unca
     }, 5000);
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString('utf8');
-      if (stdout.includes('watch-me')) child.kill('SIGINT');
+      if (stdout.includes('1 session · 0 need you')) child.kill('SIGINT');
     });
     child.once('error', reject);
     child.once('close', (exitCode) => {
@@ -243,7 +277,7 @@ test('watch iteration cap renders once with normal exit and SIGINT stops an unca
       resolve(exitCode);
     });
   });
-  assert.match(stdout, /watch-me/);
+  assert.match(stdout, /1 session · 0 need you/);
   assert.equal(code, 0);
 });
 

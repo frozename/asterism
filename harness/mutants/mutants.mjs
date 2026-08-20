@@ -152,6 +152,22 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/width.test.mjs']),
     why: 'tmux sums a ZWJ-joined cluster\'s components rather than collapsing it -- the family emoji is width 6, a grapheme approximation says 2 -- and a grapheme-collapsing width mis-routes status-bar click ranges',
   }),
+  Object.freeze({
+    id: 'MUT-NAME-OWNED-FIELD',
+    file: 'src/cli/pipeline.js',
+    find: `export const OWNED_FIELDS = Object.freeze(['lifecycle', 'flags.parked', 'name']);`,
+    replace: `export const OWNED_FIELDS = Object.freeze(['lifecycle', 'flags.parked']);`,
+    claimedBy: Object.freeze(['test/name.test.mjs', 'test/pipeline.test.mjs']),
+    why: 'collectSessions rewrites session files from reconciled records; deleting the owned name merge drops a human label on the next ast ls',
+  }),
+  Object.freeze({
+    id: 'MUT-NAME-REFUSAL-HANDLER',
+    file: 'src/cli/verbs/name.js',
+    find: `  if (validation.error) return refusal(validation.error);`,
+    replace: `  if (validation.error) throw new Error(validation.error);`,
+    claimedBy: Object.freeze(['test/name.test.mjs']),
+    why: 'name validation failures must be shaped refusal return values, not uncaught exceptions hidden by bin/ast',
+  }),
 
   // --- T3 mutants
   Object.freeze({

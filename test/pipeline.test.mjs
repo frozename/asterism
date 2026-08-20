@@ -90,6 +90,40 @@ test('collectSessions preserves lifecycle-owned fields and provenance from a par
   assert.equal(persisted.records[0].record.flags.parked, true);
 });
 
+test('collectSessions preserves asterism-owned name and provenance across rewrites', async () => {
+  const setupData = await setup([{ id: 'fake-0001', status: 'idle' }]);
+  const first = await collectSessions(setupData);
+  const named = Object.freeze({
+    ...first.records[0],
+    name: 'human label',
+    prov: Object.freeze({
+      ...first.records[0].prov,
+      name: Object.freeze({ source: 'human', confidence: 'high', at: 4242 }),
+    }),
+  });
+  await setupData.store.writeSession(named.id, named);
+
+  const reconciled = await collectSessions(setupData);
+  assert.equal(reconciled.records.length, 1);
+  assert.equal(reconciled.records[0].name, 'human label');
+  assert.deepEqual(reconciled.records[0].prov.name, named.prov.name);
+
+  const persisted = await readSessions(setupData.store.stateDir);
+  assert.deepEqual(persisted.errors, []);
+  assert.equal(persisted.records[0].record.name, 'human label');
+  assert.deepEqual(persisted.records[0].record.prov.name, named.prov.name);
+});
+
+test('collectSessions projects vendor names separately from asterism-owned names', async () => {
+  const setupData = await setup([{ id: 'fake-0001', status: 'idle', name: 'vendor label', nameSource: 'user' }]);
+
+  const reconciled = await collectSessions(setupData);
+
+  assert.equal(Object.hasOwn(reconciled.records[0], 'name'), false);
+  assert.equal(reconciled.records[0].agent.name, 'vendor label');
+  assert.equal(reconciled.records[0].prov['agent.name'].source, 'contract');
+});
+
 test('binding spool increments generation and corrupt bindings are reported without losing sessions', async () => {
   const setupData = await setup([
     { id: 'fake-0001', status: 'idle' },

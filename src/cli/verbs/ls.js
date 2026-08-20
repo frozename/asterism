@@ -37,7 +37,7 @@ export function formatLs(records, { maxWidth = 40 } = {}) {
   const rows = sorted.map((record) => [
     statusLabel(record.observed.status),
     record.adapter,
-    untrusted(record.agent.sessionId, { maxWidth }),
+    untrusted(record.name ?? record.agent.name ?? record.id, { maxWidth }),
     untrusted(record.observed.waitingFor ?? '', { maxWidth }),
     record.flags.writeDisabled ? 'read-only' : '',
   ]);

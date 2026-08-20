@@ -14,7 +14,7 @@ function sessionKey(adapter, sessionId) {
   return JSON.stringify([adapter, sessionId]);
 }
 
-export const OWNED_FIELDS = Object.freeze(['lifecycle', 'flags.parked']);
+export const OWNED_FIELDS = Object.freeze(['lifecycle', 'flags.parked', 'name']);
 
 function ownedValue(record, field) {
   let current = record;
