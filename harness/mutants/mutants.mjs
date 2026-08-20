@@ -348,4 +348,30 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/store.test.mjs']),
     why: 'a reader that skips a corrupt record silently turns state corruption into a session that simply vanishes from ast ls',
   }),
+
+  // --- T9 mutants
+  Object.freeze({
+    id: 'MUT-HOOK-NONZERO-EXIT',
+    file: 'bin/ast-hook',
+    find: `process.exitCode = 0;\n`,
+    replace: `process.exitCode = 1;\n`,
+    claimedBy: Object.freeze(['test/ast-hook.test.mjs']),
+    why: "a hook that exits non-zero blocks the human's turn -- the one thing the guest contract exists to prevent",
+  }),
+  Object.freeze({
+    id: 'MUT-NOTIFY-NO-DEDUPE',
+    file: 'src/hook/events/notification.js',
+    find: `  if (entries.some((entry) => entry.key === key && eventNow - entry.at < ttlMs)) {\n`,
+    replace: `  if (false) {\n`,
+    claimedBy: Object.freeze(['test/notify.test.mjs']),
+    why: 'without the dedupe a repeated prompt notifies on every poll and trains the human to ignore the one signal that matters',
+  }),
+  Object.freeze({
+    id: 'MUT-HOOK-UNBOUNDED',
+    file: 'src/hook/index.js',
+    find: `    if (total + bytes.length > cap) {\n`,
+    replace: `    if (false) {\n`,
+    claimedBy: Object.freeze(['test/ast-hook.test.mjs']),
+    why: "an unbounded stdin read hands a hostile payload unlimited memory inside someone else's critical path",
+  }),
 ]);

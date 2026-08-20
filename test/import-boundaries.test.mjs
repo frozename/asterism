@@ -99,6 +99,19 @@ function testOrHarnessImportViolation(file) {
   return null;
 }
 
+// (e) the guest hook binary and src/hook/** import neither tmuxexec.js nor
+// paneio.js -- ast-hook is structurally incapable of pressing a key.
+function hookKeypressViolation(file) {
+  const inScope = file.path === 'bin/ast-hook' || file.path.startsWith('src/hook/');
+  if (!inScope) return null;
+  for (const specifier of extractImportSpecifiers(file.source)) {
+    if (specifier.endsWith('tmuxexec.js') || specifier.endsWith('paneio.js')) {
+      return `${file.path}: the hook path imports "${specifier}"`;
+    }
+  }
+  return null;
+}
+
 test('(a) no file under src/adapters/<id>/ imports a sibling adapter or the registry', () => {
   assert.ok(existsSync(path.join(SRC_DIR, 'adapters')), 'src/adapters/ is missing');
 
@@ -240,4 +253,42 @@ test('(d) control: an import from test/ or harness/ is caught; a clean import pa
     source: "import path from 'node:path';\n",
   });
   assert.equal(clean, null);
+});
+
+test('(e) ast-hook and src/hook/ cannot import a keypress path', () => {
+  const astHookPath = path.join(BIN_DIR, 'ast-hook');
+  const hookDir = path.join(SRC_DIR, 'hook');
+  assert.ok(existsSync(astHookPath), 'bin/ast-hook is missing');
+  assert.ok(existsSync(hookDir), 'src/hook/ is missing');
+
+  const files = readFilesAsRepoRelative(hookDir);
+  files.push({ path: toRepoRelative(astHookPath), source: readFileSync(astHookPath, 'utf8') });
+  const violations = files.map(hookKeypressViolation).filter(Boolean);
+  assert.deepEqual(violations, []);
+});
+
+test('(e) control: hook imports of tmuxexec and paneio are caught; clean and out-of-scope imports pass', () => {
+  const tmuxexecOffender = hookKeypressViolation({
+    path: 'src/hook/events/evil.js',
+    source: "import { listPanes } from '../../io/tmuxexec.js';\n",
+  });
+  assert.ok(tmuxexecOffender, 'a hook path importing tmuxexec.js was not flagged');
+
+  const paneioOffender = hookKeypressViolation({
+    path: 'bin/ast-hook',
+    source: "import { write } from '../src/io/paneio.js';\n",
+  });
+  assert.ok(paneioOffender, 'the hook binary importing paneio.js was not flagged');
+
+  const clean = hookKeypressViolation({
+    path: 'src/hook/index.js',
+    source: "import path from 'node:path';\n",
+  });
+  assert.equal(clean, null);
+
+  const outOfScope = hookKeypressViolation({
+    path: 'src/io/allowed.js',
+    source: "import { listPanes } from './tmuxexec.js';\n",
+  });
+  assert.equal(outOfScope, null);
 });

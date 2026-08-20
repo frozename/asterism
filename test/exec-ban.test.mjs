@@ -42,6 +42,8 @@ function scopeFiles() {
   }
   const astPath = path.join(ROOT, 'bin', 'ast');
   if (existsSync(astPath)) files.add(astPath);
+  const astHookPath = path.join(ROOT, 'bin', 'ast-hook');
+  if (existsSync(astHookPath)) files.add(astHookPath);
   return [...files];
 }
 
@@ -82,4 +84,10 @@ test('control: banned patterns are flagged; execFile and a standalone shell var 
   assert.equal(execBanOffense("execFile('x', ['a']);"), false);
   assert.equal(execBanOffense('const shell = true;'), false);
   assert.equal(execBanOffense("spawn('x', ['a']);"), false);
+});
+
+test('scope includes both extensionless binaries', () => {
+  const scoped = scopeFiles().map(toRepoRelative);
+  assert.ok(scoped.includes('bin/ast'), 'bin/ast is missing from exec-ban scope');
+  assert.ok(scoped.includes('bin/ast-hook'), 'bin/ast-hook is missing from exec-ban scope');
 });

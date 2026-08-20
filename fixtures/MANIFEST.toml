@@ -132,3 +132,11 @@ kind = "manual"
 capture = "ast fixture capture claude/ps-lstart"
 maxAgeDays = 90
 why = "batched ps lstart output for the registry pids, captured at the same instant as the registry cells; pairs with them to pin the liveness clock comparison as numbers, not strings"
+
+# --- manual, adapter claude, hook slice ---
+
+[cells."claude/hook/notification"]
+kind = "manual"
+capture = "ast fixture capture claude/hook/notification"
+maxAgeDays = 90
+why = "a real Notification hook payload from a live waiting session; drives the inbox row and the argv-logged notify call as a golden"

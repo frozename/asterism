@@ -118,4 +118,13 @@ export const captures = Object.freeze([
     source: 'manual',
     cliVersionArgv: CLI_VERSION_ARGV,
   }),
+  // --- T9: the notification hook payload
+  Object.freeze({
+    cell: 'claude/hook/notification',
+    provoke:
+      'with a session parked on a real permission prompt, add a temporary Notification hook command that ' +
+      'copies its stdin to a file, wait for one notification event to fire, then pass that file with --from',
+    source: 'manual',
+    cliVersionArgv: CLI_VERSION_ARGV,
+  }),
 ]);

@@ -1,0 +1,24 @@
+#!/usr/bin/env node
+import { randomBytes } from 'node:crypto';
+import { adapters } from '../src/adapters/index.js';
+import { runHook } from '../src/hook/index.js';
+
+// No refuseIfAgentInvoked here, deliberately (threat T9): that refusal guards
+// mutating verbs a human types; ast-hook legitimately runs inside the agent
+// session -- the hook payload IS the agent's event -- and the import-boundary
+// case (e) makes this binary structurally incapable of pressing a key.
+try {
+  await runHook({
+    argv: process.argv.slice(2),
+    stdin: process.stdin,
+    env: process.env,
+    adapters,
+    platform: process.platform,
+    now: Date.now,
+    random: randomBytes,
+  });
+} catch {
+  // guest contract: an internal error degrades the augmentation to absent,
+  // never to blocking the turn. runHook already logged what it could.
+}
+process.exitCode = 0;
