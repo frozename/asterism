@@ -1,13 +1,28 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { buildRegistry } from '../adapters/index.js';
 import { resolveRecipe } from '../capture/run.js';
 import { GATED_AXES_BY_PHASE, unknownAxes, validateRecord } from '../core/caps.js';
+import { checkPipePaneOccupied, checkTmuxVersionFloor } from '../core/tmuxver.js';
 import { parseToml } from '../core/toml.js';
+import * as cfgedit from '../io/cfgedit.js';
+import { checkDiscoverySources } from '../io/discover.js';
+import { verifyIdentity } from '../io/identity.js';
 import { procexec } from '../io/procexec.js';
+import {
+  auditPermissions,
+  checkAttentionStuck,
+  checkCanaryUnknownFields,
+  checkRetentionCounts,
+  checkTargetsAreIds,
+  resolveStateDir,
+} from '../io/store.js';
+import { execTmux, serverInfo } from '../io/tmuxexec.js';
+import { resolveServer } from '../io/tmuxsock.js';
 
-export const STATUS = Object.freeze(['pass', 'warn', 'fail', 'todo']);
+export const STATUS = Object.freeze(['pass', 'warn', 'fail', 'todo', 'unknown']);
 
 const SEVERITY = Object.freeze({ pass: 0, warn: 1, fail: 2 });
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -20,10 +35,6 @@ function captureCommandFor(id, capture) {
   const resolved = resolveRecipe(id);
   const isManual = resolved?.recipe?.source === 'manual';
   return isManual ? `${capture} --from <file>` : capture;
-}
-
-async function todo(phase) {
-  return { status: 'todo', detail: `lands in Phase ${phase}` };
 }
 
 async function inspectManifestCell(root, id, cell, env) {
@@ -167,36 +178,131 @@ async function checkCapabilityUnknowns(ctx) {
   return { status: hasGatedUnknown ? 'fail' : 'warn', detail: clauses.join('; ') };
 }
 
+async function withStateDir(ctx, check) {
+  let stateDir;
+  try {
+    stateDir = resolveStateDir(ctx.env ?? {});
+  } catch (error) {
+    return {
+      status: 'unknown',
+      detail: `state directory cannot be resolved: ${error.message}; set HOME or XDG_STATE_HOME`,
+    };
+  }
+  return check(stateDir);
+}
+
+async function tmuxExecuteFor(env) {
+  const resolved = await resolveServer({
+    env,
+    uid: process.getuid(),
+    probe: ({ socketPath, env: probeEnv }) => serverInfo({ socketPath, env: probeEnv }),
+  });
+  const socketPath = resolved.ok ? resolved.socketPath : path.join(os.tmpdir(), 'asterism-test-doctor-no-server');
+  return (tmuxArgs, opts) => execTmux(tmuxArgs, { socketPath, env: opts?.env ?? env });
+}
+
+export function tmuxBlockContent(root) {
+  return (
+    `bind-key g display-popup -E -w 80% -h 60% '${root}/bin/ast ls'\n` +
+    `bind-key G display-popup -E -w 80% -h 60% '${root}/bin/ast go'`
+  );
+}
+
+async function tmuxConfigTarget(env, home) {
+  if (typeof env.XDG_CONFIG_HOME === 'string' && env.XDG_CONFIG_HOME.length > 0) {
+    const candidate = path.join(env.XDG_CONFIG_HOME, 'tmux', 'tmux.conf');
+    try {
+      await readFile(candidate);
+      return candidate;
+    } catch (error) {
+      if (error.code !== 'ENOENT') return candidate;
+    }
+  }
+  return path.join(home, '.tmux.conf');
+}
+
+async function checkManagedBlock(ctx) {
+  const targetPath = await tmuxConfigTarget(ctx.env ?? {}, ctx.home);
+  const result = await cfgedit.checkManagedBlockDrift({
+    targetPath,
+    blockId: 'cockpit-keys',
+    content: tmuxBlockContent(ctx.root),
+  });
+  return {
+    status: result.status,
+    detail: result.detail ?? `managed block "cockpit-keys" matches in ${targetPath}`,
+  };
+}
+
+export async function checkStaleLaunchdPlists({ home, platform = process.platform }) {
+  if (platform !== 'darwin') return { status: 'pass', detail: `launchd does not apply on ${platform}` };
+
+  const dir = path.join(home, 'Library', 'LaunchAgents');
+  let entries;
+  try {
+    entries = await readdir(dir);
+  } catch (error) {
+    if (error.code === 'ENOENT') return { status: 'pass', detail: `no LaunchAgents directory at ${dir}` };
+    return { status: 'unknown', detail: `cannot read LaunchAgents directory at ${dir}: ${error.message}` };
+  }
+
+  const stale = entries.filter((name) => name.includes('asterism') && name.includes('.bak-')).sort();
+  if (stale.length > 0) return { status: 'warn', detail: `stale launchd plist backup(s): ${stale.join(', ')}` };
+  return { status: 'pass', detail: `${entries.length} entries in ${dir}, none asterism-stale` };
+}
+
+async function checkDiscoveryAgreement(ctx) {
+  const registry = ctx.registry ?? buildRegistry(ctx.env ?? {});
+  const clauses = [];
+  let overall = 'pass';
+
+  for (const adapter of registry.values()) {
+    const result = await checkDiscoverySources(adapter, { env: ctx.env, home: ctx.home });
+    clauses.push(`${adapter.id}: ${result.detail}`);
+    if (result.status === 'fail') overall = 'fail';
+    else if (result.status === 'unknown' && overall === 'pass') overall = 'unknown';
+  }
+
+  return {
+    status: overall,
+    detail: overall === 'pass' ? `sources agree across ${registry.size} adapter(s)` : clauses.join('; '),
+  };
+}
+
 export const CHECKS = Object.freeze([
   Object.freeze({
     id: 'state.permissions',
     prevents: 'a state file that other users on the machine can read.',
-    run: () => todo(2),
+    run: (ctx) => withStateDir(ctx, (stateDir) => auditPermissions({ stateDir })),
   }),
   Object.freeze({
     id: 'state.targets-are-ids',
     prevents: 'state that persists a pane or session target keyed by a mutable name instead of a stable id.',
-    run: () => todo(2),
+    run: (ctx) => withStateDir(ctx, (stateDir) => checkTargetsAreIds({ stateDir })),
   }),
   Object.freeze({
     id: 'identity.sha',
     prevents: "asterism acting on its own binary or state after either was modified out from under it.",
-    run: () => todo(2),
+    run: (ctx) =>
+      withStateDir(ctx, async (stateDir) => {
+        const result = await verifyIdentity({ root: ctx.root, stateDir });
+        return { status: result.status, detail: result.note ?? 'installed tree matches identity.json' };
+      }),
   }),
   Object.freeze({
     id: 'tmux.version-floor',
     prevents: "asterism's tmux integration running against a tmux release below the supported floor.",
-    run: () => todo(3),
+    run: async ({ env }) => checkTmuxVersionFloor({ env, execute: await tmuxExecuteFor(env) }),
   }),
   Object.freeze({
     id: 'tmux.managed-block-drift',
     prevents: "the managed block in tmux's config silently drifting from what asterism last wrote, unnoticed (report-only).",
-    run: () => todo(3),
+    run: checkManagedBlock,
   }),
   Object.freeze({
     id: 'tmux.pipe-pane-occupied',
     prevents: 'a second process piping a managed pane asterism believes it owns exclusively.',
-    run: () => todo(3),
+    run: async ({ env }) => checkPipePaneOccupied({ env, execute: await tmuxExecuteFor(env) }),
   }),
   Object.freeze({
     id: 'fixtures.manifest',
@@ -211,29 +317,34 @@ export const CHECKS = Object.freeze([
   Object.freeze({
     id: 'attention.stuck',
     prevents: 'a prompt the loop believes it already answered, but the target never received the answer.',
-    run: () => todo(5),
+    run: (ctx) => withStateDir(ctx, (stateDir) => checkAttentionStuck({ stateDir })),
   }),
   Object.freeze({
     id: 'retention.counts',
     prevents: "asterism's own state growing without bound over the life of a long-running session.",
-    run: () => todo(5),
+    run: (ctx) => withStateDir(ctx, (stateDir) => checkRetentionCounts({ stateDir })),
   }),
   Object.freeze({
     id: 'canary.unknown-fields',
     prevents: "a parser silently ignoring a field it doesn't recognize in real target output, until it matters.",
-    run: () => todo(5),
+    run: (ctx) => withStateDir(ctx, (stateDir) => checkCanaryUnknownFields({ stateDir, now: Date.now() })),
   }),
   Object.freeze({
     id: 'launchd.stale-plists',
     prevents: 'a stale launchd service definition still loaded alongside the current one.',
-    run: () => todo(6),
+    run: ({ home }) => checkStaleLaunchdPlists({ home }),
+  }),
+  Object.freeze({
+    id: 'discovery.source-agreement',
+    prevents: 'the contract listing and the enrichment registry silently disagreeing about the same session.',
+    run: checkDiscoveryAgreement,
   }),
 ]);
 
-export async function runDoctor({ root, home, env, checks = CHECKS }) {
+export async function runDoctor({ root, home, env, registry, checks = CHECKS }) {
   const results = [];
   for (const check of checks) {
-    const { status, detail } = await check.run({ root, home, env });
+    const { status, detail } = await check.run({ root, home, env, registry });
     results.push({ id: check.id, status, detail });
   }
 

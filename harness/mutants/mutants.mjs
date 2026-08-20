@@ -410,4 +410,30 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/bind.test.mjs']),
     why: 'a name-shaped pane id accepted here becomes a name-keyed tmux target one layer down, violating the ids-only invariant',
   }),
+
+  // --- T12 mutants
+  Object.freeze({
+    id: 'MUT-DOCTOR-PERMS-IGNORE-GROUP-BIT',
+    file: 'src/io/store.js',
+    find: `      if ((info.mode & 0o077) !== 0) {\n`,
+    replace: `      if ((info.mode & 0o007) !== 0) {\n`,
+    claimedBy: Object.freeze(['test/doctor.test.mjs']),
+    why: 'a permissions audit that ignores the group bits certifies a state file every group member can read',
+  }),
+  Object.freeze({
+    id: 'MUT-DOCTOR-UNKNOWN-IS-GREEN',
+    file: 'src/doctor/index.js',
+    find: `  const exit = results.every((result) => result.status === 'pass' || result.status === 'warn') ? 0 : 1;\n`,
+    replace: `  const exit = results.every((result) => result.status === 'pass' || result.status === 'warn' || result.status === 'unknown') ? 0 : 1;\n`,
+    claimedBy: Object.freeze(['test/doctor.test.mjs']),
+    why: 'a check that cannot run is not a passing check -- collapsing unknown into green certifies a broken install',
+  }),
+  Object.freeze({
+    id: 'MUT-DOCTOR-VERB-COUNTS-DROP-UNKNOWN',
+    file: 'src/cli/verbs/doctor.js',
+    find: `  const counts = { pass: 0, warn: 0, fail: 0, todo: 0, unknown: 0 };\n`,
+    replace: `  const counts = { pass: 0, warn: 0, fail: 0, todo: 0 };\n`,
+    claimedBy: Object.freeze(['test/doctor.test.mjs']),
+    why: 'an unknown result outside the counts object renders the summary as NaN and vanishes from the one line a human reads',
+  }),
 ]);
