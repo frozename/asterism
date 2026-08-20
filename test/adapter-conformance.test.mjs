@@ -131,3 +131,51 @@ for (const adapter of registry.values()) {
     assert.ok(Object.isFrozen(result));
   });
 }
+
+// ---- T7: lister tier ----
+
+const { readFile: readListerVector } = await import('node:fs/promises');
+const { collectObservations: collectListerObservations } = await import('../src/io/discover.js');
+const { OBSERVATION_SOURCES, reconcile: reconcileListings } = await import('../src/core/reconcile.js');
+
+function listerShape(adapter) {
+  const argv = typeof adapter.discoverArgv === 'function';
+  const func = typeof adapter.discover === 'function';
+  if (argv && func) return 'both';
+  if (argv) return 'argv';
+  if (func) return 'function';
+  return 'none';
+}
+
+test('listerShape controls distinguish both and none', () => {
+  assert.equal(listerShape({ discoverArgv() {}, discover() {} }), 'both');
+  assert.equal(listerShape({}), 'none');
+});
+
+for (const adapter of registry.values()) {
+  test(`${adapter.id}: exposes exactly one discovery lister`, () => {
+    assert.ok(['argv', 'function'].includes(listerShape(adapter)));
+  });
+
+  test(`${adapter.id}: discovery envelopes satisfy the reconciler`, async () => {
+    const shape = listerShape(adapter);
+    const env = shape === 'function' ? { ASTERISM_FAKE_ROOT: FAKE_ROOT } : { PATH: '/unused', HOME: ROOT };
+    const options = { env, home: ROOT, now: 0 };
+    if (shape === 'argv') {
+      const vectorPath = path.join(ROOT, 'vectors', adapter.id, 'synthetic', 'agents-json', 'mixed.json');
+      const bytes = await readListerVector(vectorPath);
+      options.execute = async () => ({ code: 0, stdout: bytes, stderr: Buffer.alloc(0) });
+    }
+
+    const { observations } = await collectListerObservations(adapter, options);
+    assert.ok(observations.length >= 1);
+    for (const observation of observations) {
+      assert.ok(OBSERVATION_SOURCES.includes(observation.source));
+      assert.equal(observation.adapter, adapter.id);
+    }
+
+    let counter = 0;
+    const folded = await reconcileListings(observations, { now: 0, mint: () => `conformance-${++counter}` });
+    assert.ok(folded.records.length >= 1);
+  });
+}

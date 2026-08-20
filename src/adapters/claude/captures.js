@@ -107,4 +107,15 @@ export const captures = Object.freeze([
     source: 'manual',
     cliVersionArgv: CLI_VERSION_ARGV,
   }),
+  // --- T7: the liveness clock pair
+  Object.freeze({
+    cell: 'claude/ps-lstart',
+    provoke:
+      'with at least one live session, run `ps -o pid=,lstart= -p <registry pids>` (comma-joined pids taken ' +
+      'from the session registry filenames) at the same instant as the registry cells are captured, save the ' +
+      'output to a file, and pass it with --from; include the token TZ=<Area/City> (the machine IANA timezone, ' +
+      'for example TZ=America/Sao_Paulo) in the --provoked-by text — the golden pairing test reads it',
+    source: 'manual',
+    cliVersionArgv: CLI_VERSION_ARGV,
+  }),
 ]);

@@ -296,4 +296,30 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/cfgedit.test.mjs']),
     why: 'a byte-diff that finds a mismatch and does nothing about it turns a corrupted write into a silent success',
   }),
+
+  // --- T7 mutants
+  Object.freeze({
+    id: 'MUT-ENRICH-NO-PEER-GATE',
+    file: 'src/io/discover.js',
+    find: `    if (parsedRecord.record.peerProtocol !== adapter.ENRICHMENT.requiredPeerProtocol) {`,
+    replace: `    if (false) {`,
+    claimedBy: Object.freeze(['test/discover.test.mjs']),
+    why: 'an ungated registry read trusts a private file format across a protocol bump',
+  }),
+  Object.freeze({
+    id: 'MUT-ENRICH-NO-BYTE-CAP',
+    file: 'src/io/discover.js',
+    find: `    if (fileStat.size > adapter.ENRICHMENT.maxFileBytes) {`,
+    replace: `    if (false) {`,
+    claimedBy: Object.freeze(['test/discover.test.mjs']),
+    why: 'an uncapped read of an undocumented file is a memory-shaped trust grant',
+  }),
+  Object.freeze({
+    id: 'MUT-REGISTRY-NONCANONICAL',
+    file: 'src/io/discover.js',
+    find: `    if (!adapter.registryFilePattern.test(name)) continue;`,
+    replace: `    if (false) continue;`,
+    claimedBy: Object.freeze(['test/discover.test.mjs']),
+    why: 'a foreign file in the registry dir must never become a session row',
+  }),
 ]);

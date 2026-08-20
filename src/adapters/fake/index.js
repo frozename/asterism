@@ -1,3 +1,4 @@
+import { readdir, readFile } from 'node:fs/promises';
 import { UNKNOWN, validateRecord } from '../../core/caps.js';
 
 const BY_CONSTRUCTION = 'by construction — read src/adapters/fake/index.js';
@@ -57,8 +58,39 @@ function binaryCandidates(home) {
   return [{ dir: `${home}/.fake/bin`, pick: 'newest' }];
 }
 
+export async function discover({ env }) {
+  const root = env?.ASTERISM_FAKE_ROOT;
+  if (typeof root !== 'string' || root.length === 0) return [];
+
+  const sessionsDir = `${root}/sessions`;
+  let names;
+  try {
+    names = await readdir(sessionsDir);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return [];
+    throw error;
+  }
+
+  const rows = [];
+  for (const name of names.filter((entry) => entry.endsWith('.json')).sort()) {
+    let parsed;
+    try {
+      parsed = JSON.parse(await readFile(`${sessionsDir}/${name}`, 'utf8'));
+    } catch (error) {
+      throw new Error(`fake discovery: ${name}: ${error.message}`);
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(`fake discovery: ${name}: record must be an object`);
+    }
+    const { id, ...rest } = parsed;
+    rows.push(Object.freeze({ sessionId: id, ...rest }));
+  }
+  return Object.freeze(rows);
+}
+
 export default Object.freeze({
   id: 'fake',
+  discover,
   captures: Object.freeze([]),
   measuredOn,
   capabilities,

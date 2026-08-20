@@ -1,0 +1,8 @@
+{
+  "cwd": "/w/proj-a", "kind": "primary", "name": "alpha", "pid": 1234,
+  "sessionId": "sess-alpha-0001", "startedAt": "2026-08-18T12:00:00Z", "status": "idle",
+  "bridgeSessionId": "bridge-0001", "entrypoint": "cli", "messagingSocketPath": "/w/socks/sock-0001",
+  "nameSince": "2026-08-18T12:00:05Z", "nameSource": "user", "peerProtocol": 1,
+  "procStart": "Mon Aug 17 23:27:33 2026", "statusUpdatedAt": "2026-08-18T12:00:10Z",
+  "tmux": "0:@0.%0", "updatedAt": "2026-08-18T12:00:10Z", "version": "2.1.235"
+}

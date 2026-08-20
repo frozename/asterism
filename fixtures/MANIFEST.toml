@@ -124,3 +124,11 @@ why = "flag surface for a future copilot adapter"
 kind = "n/a"
 reason = "deferred to Phase 6"
 why = "flag surface for a future opencode adapter"
+
+# --- manual, adapter claude, discovery slice ---
+
+[cells."claude/ps-lstart"]
+kind = "manual"
+capture = "ast fixture capture claude/ps-lstart"
+maxAgeDays = 90
+why = "batched ps lstart output for the registry pids, captured at the same instant as the registry cells; pairs with them to pin the liveness clock comparison as numbers, not strings"

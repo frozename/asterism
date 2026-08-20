@@ -1,0 +1,7 @@
+[
+  { "cwd": "/w/proj-a", "kind": "primary", "name": "alpha", "pid": 111, "sessionId": "sess-alpha-0001", "startedAt": "2026-08-18T12:00:00Z", "status": "idle" },
+  { "cwd": "/w/proj-b", "kind": "primary", "name": "beta", "pid": 222, "sessionId": "sess-beta-0002", "startedAt": "2026-08-18T12:01:00Z", "status": "busy" },
+  { "cwd": "/w/proj-c", "kind": "primary", "name": "gamma", "pid": 333, "sessionId": "sess-gamma-0003", "startedAt": "2026-08-18T12:02:00Z", "status": "waiting", "waitingFor": "input needed" },
+  { "cwd": "/w/proj-d", "kind": "primary", "name": "delta", "pid": 444, "sessionId": "sess-delta-0004", "startedAt": "2026-08-18T12:03:00Z", "status": "busy", "zetaField": "surprise" },
+  { "cwd": "/w/proj-e", "kind": "primary", "name": "epsilon", "pid": 555, "sessionId": "sess-epsilon-0005", "startedAt": "2026-08-18T12:04:00Z", "status": null }
+]
