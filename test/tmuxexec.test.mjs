@@ -211,6 +211,45 @@ test('newWindow detached false omits only the detached flag', async () => {
   ]);
 });
 
+test('newWindow appends command argv verbatim after -- without treating agent -t as a tmux target', async () => {
+  const calls = [];
+  const command = ['fake-agent', '-t', '5', '$(id -u)', 'a;b', '#{pane_id}'];
+  const paneId = await newWindow({
+    cwd: '/tmp/project',
+    command,
+    socketPath: '/tmp/sockets/asterism-test-x',
+    env: fakeEnv(),
+    execute: fakeExecute(calls, { code: 0, stdout: Buffer.from('%9\n'), stderr: Buffer.alloc(0) }),
+  });
+
+  assert.equal(paneId, '%9');
+  assert.deepEqual(calls, [
+    [
+      'tmux', '-u', '-S', '/tmp/sockets/asterism-test-x',
+      'new-window', '-d', '-P', '-F', '#{pane_id}', '-c', '/tmp/project',
+      '--', 'fake-agent', '-t', '5', '$(id -u)', 'a;b', '#{pane_id}',
+    ],
+  ]);
+});
+
+test('newWindow rejects non-array command argv and non-string, NUL, or newline elements before spawning', async () => {
+  const calls = [];
+  const opts = {
+    cwd: '/tmp/project',
+    socketPath: '/tmp/sockets/asterism-test-x',
+    env: fakeEnv(),
+    execute: fakeExecute(calls, { code: 0, stdout: Buffer.from('%7\n'), stderr: Buffer.alloc(0) }),
+  };
+
+  for (const command of ['fake-agent', ['fake-agent', 5], ['fake-agent', 'a\x00b'], ['fake-agent', 'a\nb']]) {
+    await assert.rejects(() => newWindow({ ...opts, command }), /command argv/);
+  }
+  assert.equal(calls.length, 0);
+
+  await newWindow({ ...opts, command: ['fake-agent', '#;$'] });
+  assert.equal(calls.length, 1, 'format metacharacters are legal command argv bytes');
+});
+
 test('newWindow format is the pinned pane-id format constant', () => {
   assert.equal(NEW_WINDOW_FORMAT, '#{pane_id}');
 });

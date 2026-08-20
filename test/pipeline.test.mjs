@@ -114,6 +114,40 @@ test('collectSessions preserves lifecycle-owned fields and provenance from a par
   assert.equal(persisted.records[0].record.flags.parked, true);
 });
 
+test('collectSessions preserves a prior Bound state, binding, and their provenance', async () => {
+  const setupData = await setup([{ id: 'fake-0001', status: 'idle' }]);
+  const first = await collectSessions(setupData);
+  const prior = first.records[0];
+  const binding = Object.freeze({
+    serverPid: 4242,
+    tmuxSession: null,
+    windowId: null,
+    paneId: '%7',
+    by: 'SpawnMinted',
+    at: '2026-08-20T00:00:00.000Z',
+  });
+  const stateProv = Object.freeze({ source: 'spawn-minted', confidence: 'authoritative', at: 1 });
+  const bindingProv = Object.freeze({ source: 'spawn-minted', confidence: 'authoritative', at: 2 });
+  await setupData.store.writeSession(prior.id, {
+    ...prior,
+    state: 'Bound',
+    binding,
+    prov: { ...prior.prov, state: stateProv, binding: bindingProv },
+  });
+
+  const second = await collectSessions(setupData);
+  assert.equal(second.records[0].id, prior.id);
+  assert.equal(second.records[0].state, 'Bound');
+  assert.deepEqual(second.records[0].binding, binding);
+  assert.deepEqual(second.records[0].prov.state, stateProv);
+  assert.deepEqual(second.records[0].prov.binding, bindingProv);
+
+  const persisted = await readSessions(setupData.store.stateDir);
+  assert.deepEqual(persisted.errors, []);
+  assert.equal(persisted.records[0].record.state, 'Bound');
+  assert.deepEqual(persisted.records[0].record.binding, binding);
+});
+
 test('collectSessions preserves asterism-owned name and provenance across rewrites', async () => {
   const setupData = await setup([{ id: 'fake-0001', status: 'idle' }]);
   const first = await collectSessions(setupData);

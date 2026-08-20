@@ -253,3 +253,61 @@ test('resolveServers returns every live realpathed server, dedupes, skips dead f
   assert.deepEqual(empty, []);
   assert.equal(Object.isFrozen(empty), true);
 });
+
+test('resolveServers probes through non-ENOENT realpath failures, notes the candidate, and dedupes by server pid', async () => {
+  const notes = [];
+  const socketPath = '/env/asterism-test-live';
+  const servers = await resolveServers({
+    env: { TMUX: `${socketPath},41,0`, TMUX_TMPDIR: '/custom' },
+    uid: 501,
+    exists: () => true,
+    listDir: (dir) => dir === '/custom/tmux-501' ? ['asterism-test-alias'] : [],
+    realpath: () => { throw Object.assign(new Error('socket lstat is unsupported'), { code: 'EOPNOTSUPP' }); },
+    probe: async ({ socketPath: probedPath }) => ({ ok: true, socketPath: probedPath, pid: 41, version: '3.7c' }),
+    notes,
+  });
+
+  assert.deepEqual(servers, [{ socketPath, serverPid: 41, version: '3.7c' }]);
+  assert.ok(notes.some((entry) => entry.adapter === 'tmux' && entry.note === 'socket-canonicalization-failed' && entry.detail.includes(socketPath)));
+});
+
+test('resolveServers silently skips a candidate whose realpath reports ENOENT', async () => {
+  const notes = [];
+  let probes = 0;
+  const servers = await resolveServers({
+    env: { TMUX: '/env/asterism-test-gone,41,0' },
+    uid: 501,
+    exists: () => true,
+    listDir: () => [],
+    realpath: () => { throw Object.assign(new Error('gone'), { code: 'ENOENT' }); },
+    probe: async () => { probes += 1; return { ok: true, socketPath: '/env/asterism-test-gone', pid: 41, version: '3.7c' }; },
+    notes,
+  });
+
+  assert.deepEqual(servers, []);
+  assert.equal(probes, 0);
+  assert.deepEqual(notes, []);
+});
+
+test('resolveServers notes non-ENOENT probe failures but keeps ENOENT probe failures silent', async () => {
+  const notes = [];
+  const probeErrors = [
+    Object.assign(new Error('permission denied'), { code: 'EACCES' }),
+    Object.assign(new Error('gone'), { code: 'ENOENT' }),
+  ];
+  const servers = await resolveServers({
+    env: { TMUX: '/env/asterism-test-denied,41,0' },
+    uid: 501,
+    exists: () => true,
+    listDir: (dir) => dir === '/tmp/tmux-501' ? ['asterism-test-gone'] : [],
+    realpath: (candidate) => candidate,
+    probe: async () => { throw probeErrors.shift(); },
+    notes,
+  });
+
+  assert.deepEqual(servers, []);
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].adapter, 'tmux');
+  assert.equal(notes[0].note, 'socket-probe-failed');
+  assert.match(notes[0].detail, /\/env\/asterism-test-denied/);
+});

@@ -23,6 +23,24 @@ function candidatesFromDir(dir, listDir) {
   return entries.map((name) => ({ socketPath: path.join(dir, name), serverPid: null }));
 }
 
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function addNote(notes, name, socketPath, error) {
+  notes.push(Object.freeze({ adapter: 'tmux', note: name, detail: `${socketPath}: ${errorMessage(error)}` }));
+}
+
+function canonicalize(socketPath, realpath, notes) {
+  try {
+    return { socketPath: realpath(socketPath), canonical: true };
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    addNote(notes, 'socket-canonicalization-failed', socketPath, error);
+    return { socketPath, canonical: false };
+  }
+}
+
 export async function resolveServer({ env, uid, probe, realpath = realpathSync, exists = existsSync, listDir = readdirSync }) {
   const rungs = [];
 
@@ -66,7 +84,7 @@ export async function resolveServer({ env, uid, probe, realpath = realpathSync, 
   return { ok: false, reason: 'no-server' };
 }
 
-export async function resolveServers({ env, uid, probe, realpath = realpathSync, exists = existsSync, listDir = readdirSync }) {
+export async function resolveServers({ env, uid, probe, realpath = realpathSync, exists = existsSync, listDir = readdirSync, notes = [] }) {
   const rungs = [];
   rungs.push(...candidatesFromTmuxEnv(env.TMUX));
   if (typeof env.TMUX_TMPDIR === 'string' && env.TMUX_TMPDIR.length > 0) {
@@ -78,30 +96,30 @@ export async function resolveServers({ env, uid, probe, realpath = realpathSync,
   const seen = new Set();
   for (const candidate of rungs) {
     if (!exists(candidate.socketPath)) continue;
-    let candidateReal;
-    try {
-      candidateReal = realpath(candidate.socketPath);
-    } catch {
-      continue;
-    }
+    const candidateResolved = canonicalize(candidate.socketPath, realpath, notes);
+    if (candidateResolved === null) continue;
     let probed;
     try {
-      probed = await probe({ socketPath: candidateReal, env });
-    } catch {
+      probed = await probe({ socketPath: candidateResolved.socketPath, env });
+    } catch (error) {
+      if (error?.code !== 'ENOENT') addNote(notes, 'socket-probe-failed', candidate.socketPath, error);
       continue;
     }
     if (!probed || probed.ok !== true) continue;
 
-    let probedReal;
-    try {
-      probedReal = realpath(probed.socketPath);
-    } catch {
-      continue;
-    }
-    if (candidateReal !== probedReal || seen.has(candidateReal)) continue;
-    seen.add(candidateReal);
+    const probedResolved = canonicalize(probed.socketPath, realpath, notes);
+    if (probedResolved === null) continue;
+    if (candidateResolved.canonical && probedResolved.canonical && candidateResolved.socketPath !== probedResolved.socketPath) continue;
+    const socketPath = candidateResolved.canonical
+      ? candidateResolved.socketPath
+      : probedResolved.canonical
+        ? probedResolved.socketPath
+        : candidate.socketPath;
+    const identity = Number.isInteger(probed.pid) ? `pid:${probed.pid}` : `socket:${socketPath}`;
+    if (seen.has(identity)) continue;
+    seen.add(identity);
     servers.push(Object.freeze({
-      socketPath: candidateReal,
+      socketPath,
       serverPid: candidate.serverPid ?? probed.pid,
       version: probed.version,
     }));

@@ -16,6 +16,7 @@ import {
   withAttachedClient,
   withSandboxServer,
 } from '../harness/l3.mjs';
+import { run as runNew } from '../src/cli/verbs/new.js';
 import { parseListPanes } from '../src/core/tmuxparse.js';
 import { execTmux, newWindow } from '../src/io/tmuxexec.js';
 
@@ -38,6 +39,47 @@ function registerGated(name, fn) {
 }
 
 const gate = await l3Gate({ PATH: process.env.PATH ?? '', ASTERISM_L3: process.env.ASTERISM_L3 });
+
+async function clientWindows(raw) {
+  const listed = await raw(['list-clients', '-F', '#{client_name}|#{session_id}']);
+  const clients = listed.stdout
+    .toString('utf8')
+    .trim()
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => line.split('|'));
+  assert.ok(clients.length > 0, 'expected at least one attached client');
+
+  const windows = new Map();
+  for (const [clientName, sessionId] of clients) {
+    const displayed = await raw(['display-message', '-p', '-t', sessionId, '#{window_id}']);
+    windows.set(clientName, Object.freeze({ sessionId, windowId: displayed.stdout.toString('utf8').trim() }));
+  }
+  return windows;
+}
+
+async function runNewWithAttachedClient({ raw, socketPath }, argv) {
+  const pidResult = await raw(['display-message', '-p', '#{pid}']);
+  const serverPid = Number(pidResult.stdout.toString('utf8').trim());
+  assert.equal(Number.isInteger(serverPid), true);
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'ast-new-l3-'));
+  const env = {
+    PATH: process.env.PATH ?? '',
+    HOME: tmp,
+    XDG_STATE_HOME: tmp,
+    TMUX: `${socketPath},${serverPid},0`,
+  };
+  const adapter = Object.freeze({
+    id: 'fake',
+    spawnArgv: () => Object.freeze(['/bin/sleep', '30']),
+  });
+
+  try {
+    return await runNew(argv, { env, adapters: new Map([[adapter.id, adapter]]), root: process.cwd() });
+  } finally {
+    rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  }
+}
 
 test('decideL3: ASTERISM_L3=1 runs hard even with a null versionOutput', () => {
   assert.deepEqual(decideL3({ env: { ASTERISM_L3: '1' }, versionOutput: null }), { mode: 'run', hard: true });
@@ -379,6 +421,28 @@ registerGated(
     }, { env: { PATH: process.env.PATH ?? '' } });
   },
 );
+
+registerGated('ast new leaves every attached client on its current window by default', async () => {
+  await withAttachedClient(async (attached) => {
+    const before = await clientWindows(attached.raw);
+    assert.equal(await runNewWithAttachedClient(attached, []), 0);
+    const after = await clientWindows(attached.raw);
+    assert.deepEqual(after, before);
+  }, { env: { PATH: process.env.PATH ?? '' } });
+});
+
+registerGated('ast new --switch moves every attached client session to the new window', async () => {
+  await withAttachedClient(async (attached) => {
+    const before = await clientWindows(attached.raw);
+    assert.equal(await runNewWithAttachedClient(attached, ['--switch']), 0);
+    const after = await clientWindows(attached.raw);
+    assert.deepEqual([...after.keys()].sort(), [...before.keys()].sort());
+    for (const [clientName, current] of after) {
+      assert.equal(current.sessionId, before.get(clientName).sessionId);
+      assert.notEqual(current.windowId, before.get(clientName).windowId);
+    }
+  }, { env: { PATH: process.env.PATH ?? '' } });
+});
 
 registerGated(
   'embedded newline + row count: a real newline inside a user option forges an extra list-panes row, and the row-count invariant rejects it',

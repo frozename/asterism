@@ -27,31 +27,41 @@ export function assertFormatSafe(value) {
   }
 }
 
+function assertCommandArgv(command) {
+  if (!Array.isArray(command)) throw new Error('new-window command argv must be an array');
+  for (const element of command) {
+    if (typeof element !== 'string' || /[\n\r\x00]/.test(element)) {
+      throw new Error(`new-window command argv contains an invalid element: ${JSON.stringify(element)}`);
+    }
+  }
+}
+
 // The only low-level tmux runner. -u is always applied so an LC_ALL=C client
 // cannot mangle a -F row into a single dropped field (see the tab byte-diff
 // invariant in test/tmux-l3.test.mjs); every -t target is validated before
 // the spawn, never rewritten.
-export async function execTmux(args, { socketPath, env, execute = procexec }) {
+export async function execTmux(args, { socketPath, env, execute = procexec, command = [] }) {
   assertTestSocketAllowed(socketPath, env);
 
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === '-t') assertValidTarget(args[index + 1]);
   }
 
-  return execute(['tmux', '-u', '-S', socketPath, ...args], { env });
+  return execute(['tmux', '-u', '-S', socketPath, ...args, ...(command.length > 0 ? ['--', ...command] : [])], { env });
 }
 
 // Detached is the default because spawning a pane must not move the human's
 // current tmux view. `detached: false` is the explicit --switch opt-in.
-export async function newWindow({ cwd, detached = true, socketPath, env, execute } = {}) {
+export async function newWindow({ cwd, command = [], detached = true, socketPath, env, execute } = {}) {
   if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) {
     throw new Error(`new-window cwd ${JSON.stringify(cwd)} must be an absolute path`);
   }
   assertFormatSafe(cwd);
+  assertCommandArgv(command);
 
   const result = await execTmux(
     ['new-window', ...(detached ? ['-d'] : []), '-P', '-F', NEW_WINDOW_FORMAT, '-c', cwd],
-    { socketPath, env, execute },
+    { socketPath, env, execute, command },
   );
   const stderr = result.stderr.toString('utf8').trim();
   if (result.code !== 0) {
