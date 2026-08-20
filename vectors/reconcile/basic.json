@@ -1,0 +1,39 @@
+{
+  "observations": [
+    {
+      "source": "contract",
+      "adapter": "alpha",
+      "at": 1000,
+      "fields": { "sessionId": "sess-1", "status": "waiting", "pid": 111 }
+    },
+    {
+      "source": "registry-file",
+      "adapter": "alpha",
+      "at": 2000,
+      "fields": { "sessionId": "sess-1", "pid": 222, "procStart": "Mon Aug 17 23:27:33 2026" }
+    },
+    {
+      "source": "contract",
+      "adapter": "alpha",
+      "at": 1500,
+      "fields": { "sessionId": "sess-2", "status": "busy", "pid": 333 }
+    },
+    {
+      "source": "contract",
+      "adapter": "beta",
+      "at": 1200,
+      "fields": { "sessionId": "sess-3", "status": "idle", "pid": 444 }
+    }
+  ],
+  "expect": {
+    "order": ["sess-1", "sess-2", "sess-3"],
+    "statuses": { "sess-1": "waiting", "sess-2": "busy", "sess-3": "idle" },
+    "contendedField": "pid",
+    "contendedSessionId": "sess-1",
+    "contendedWinnerValue": 222,
+    "contendedWinnerSource": "registry-file",
+    "enrichedSessionId": "sess-1",
+    "procStartCtime": "Mon Aug 17 23:27:33 2026",
+    "procStartEpoch": 1787009253
+  }
+}

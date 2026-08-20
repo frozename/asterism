@@ -1,0 +1,30 @@
+{
+  "observations": [
+    {
+      "source": "contract",
+      "adapter": "alpha",
+      "at": 1000,
+      "fields": { "sessionId": "sess-unknown-key", "status": "busy", "pid": 601, "zetaTelemetry": "surprise" }
+    },
+    {
+      "source": "contract",
+      "adapter": "alpha",
+      "at": 1000,
+      "fields": { "sessionId": "sess-null-status", "status": null, "pid": 602 }
+    },
+    {
+      "source": "contract",
+      "adapter": "alpha",
+      "at": 1000,
+      "fields": { "sessionId": "sess-clean", "status": "idle", "pid": 603 }
+    }
+  ],
+  "expect": {
+    "cleanSessionId": "sess-clean",
+    "nullStatusSessionId": "sess-null-status",
+    "canaries": [
+      { "adapter": "alpha", "key": "zetaTelemetry" },
+      { "adapter": "alpha", "key": "status" }
+    ]
+  }
+}

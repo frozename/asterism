@@ -1,0 +1,19 @@
+{
+  "observations": [
+    {
+      "source": "contract",
+      "adapter": "alpha",
+      "at": 1000,
+      "fields": { "sessionId": "sess-a", "status": "busy", "pid": 501 }
+    },
+    {
+      "source": "contract",
+      "adapter": "alpha",
+      "at": 1100,
+      "fields": { "sessionId": "sess-b", "status": "idle", "pid": 502 }
+    }
+  ],
+  "expect": {
+    "sessionIds": ["sess-a", "sess-b"]
+  }
+}
