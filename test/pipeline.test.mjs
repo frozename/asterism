@@ -7,8 +7,9 @@ import test from 'node:test';
 import { buildRegistry } from '../src/adapters/index.js';
 import fake from '../src/adapters/fake/index.js';
 import { collectSessions, resolveSessionRef, stableIds } from '../src/cli/pipeline.js';
+import { applyLifecycle } from '../src/core/parkstate.js';
 import { ULID_PATTERN } from '../src/core/ulid.js';
-import { openStore } from '../src/io/store.js';
+import { openStore, readSessions } from '../src/io/store.js';
 
 async function scratch(prefix) {
   return mkdtemp(path.join(os.tmpdir(), prefix));
@@ -68,6 +69,25 @@ test('stableIds re-keys matching records and leaves a new group untouched', () =
   const result = stableIds(records, prior);
   assert.equal(result.find((record) => record.agent.sessionId === 'a').id, 'old-a');
   assert.equal(result.find((record) => record.agent.sessionId === 'b').id, 'new-b');
+});
+
+test('collectSessions preserves lifecycle-owned fields and provenance from a parked record', async () => {
+  const setupData = await setup([{ id: 'fake-0001', status: 'idle' }]);
+  const first = await collectSessions(setupData);
+  const parked = applyLifecycle(first.records[0], 'park', { at: 4242 });
+  await setupData.store.writeSession(parked.id, parked);
+
+  const reconciled = await collectSessions(setupData);
+  assert.equal(reconciled.records.length, 1);
+  assert.equal(reconciled.records[0].lifecycle, 'Parked');
+  assert.equal(reconciled.records[0].flags.parked, true);
+  assert.deepEqual(reconciled.records[0].prov.lifecycle, parked.prov.lifecycle);
+  assert.deepEqual(reconciled.records[0].prov['flags.parked'], parked.prov['flags.parked']);
+
+  const persisted = await readSessions(setupData.store.stateDir);
+  assert.deepEqual(persisted.errors, []);
+  assert.equal(persisted.records[0].record.lifecycle, 'Parked');
+  assert.equal(persisted.records[0].record.flags.parked, true);
 });
 
 test('binding spool increments generation and corrupt bindings are reported without losing sessions', async () => {

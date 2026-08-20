@@ -14,8 +14,45 @@ function sessionKey(adapter, sessionId) {
   return JSON.stringify([adapter, sessionId]);
 }
 
+export const OWNED_FIELDS = Object.freeze(['lifecycle', 'flags.parked']);
+
+function ownedValue(record, field) {
+  let current = record;
+  for (const part of field.split('.')) {
+    if (current === null || typeof current !== 'object' || !Object.hasOwn(current, part)) {
+      return { found: false };
+    }
+    current = current[part];
+  }
+  return { found: true, value: current };
+}
+
+function setOwnedValue(record, parts, value) {
+  const [part, ...rest] = parts;
+  if (rest.length === 0) {
+    record[part] = value;
+    return;
+  }
+
+  const child = record[part] !== null && typeof record[part] === 'object' ? { ...record[part] } : {};
+  setOwnedValue(child, rest, value);
+  record[part] = Object.freeze(child);
+}
+
+export function mergeOwnedFields(reconciled, priorRecord) {
+  const merged = { ...reconciled };
+  const prov = { ...reconciled.prov };
+  for (const field of OWNED_FIELDS) {
+    const prior = ownedValue(priorRecord, field);
+    if (prior.found) setOwnedValue(merged, field.split('.'), prior.value);
+    if (Object.hasOwn(priorRecord.prov ?? {}, field)) prov[field] = priorRecord.prov[field];
+  }
+  merged.prov = Object.freeze(prov);
+  return Object.freeze(merged);
+}
+
 export function stableIds(records, priorRecords) {
-  const priorIds = new Map();
+  const priorBySession = new Map();
   for (const entry of priorRecords) {
     const record = entry?.record ?? entry;
     if (
@@ -23,13 +60,15 @@ export function stableIds(records, priorRecords) {
       typeof record?.adapter === 'string' &&
       typeof record?.agent?.sessionId === 'string'
     ) {
-      priorIds.set(sessionKey(record.adapter, record.agent.sessionId), record.id);
+      priorBySession.set(sessionKey(record.adapter, record.agent.sessionId), record);
     }
   }
 
   const stable = records.map((record) => {
-    const priorId = priorIds.get(sessionKey(record.adapter, record.agent.sessionId));
-    return priorId === undefined ? record : Object.freeze({ ...record, id: priorId });
+    const priorRecord = priorBySession.get(sessionKey(record.adapter, record.agent.sessionId));
+    if (priorRecord === undefined) return record;
+    const reconciled = Object.freeze({ ...record, id: priorRecord.id });
+    return mergeOwnedFields(reconciled, priorRecord);
   });
   stable.sort(compareRecords);
   return Object.freeze(stable);
