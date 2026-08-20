@@ -219,4 +219,38 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/store.test.mjs']),
     why: 'the default mode is the one every typed writer rides on',
   }),
+
+  // --- T5 mutants
+  Object.freeze({
+    id: 'MUT-TMUX-DROP-U',
+    file: 'src/io/tmuxexec.js',
+    find: `  return execute(['tmux', '-u', '-S', socketPath, ...args], { env });`,
+    replace: `  return execute(['tmux', '-S', socketPath, ...args], { env });`,
+    claimedBy: Object.freeze(['test/tmuxexec.test.mjs']),
+    why: 'dropping -u silently re-enables the LC_ALL=C tab-mangling trap',
+  }),
+  Object.freeze({
+    id: 'MUT-TMUX-NAME-TARGET',
+    file: 'src/io/tmuxexec.js',
+    find: `export const TARGET_ID = /^[$@%]\\d+$/;`,
+    replace: `export const TARGET_ID = /^.+$/;`,
+    claimedBy: Object.freeze(['test/tmuxexec.test.mjs']),
+    why: 'a name-keyed target is the wrong-pane and format-injection vector',
+  }),
+  Object.freeze({
+    id: 'MUT-TMUX-PAD-FIELDS',
+    file: 'src/core/tmuxparse.js',
+    find: `    if (fields.length !== 7) {\n      return { ok: false, reason: \`list-panes row "\${line}" has \${fields.length} field(s), expected 7\` };\n    }`,
+    replace: `    while (fields.length < 7) fields.push('');`,
+    claimedBy: Object.freeze(['test/tmuxparse.test.mjs']),
+    why: 'a padded row turns a parser failure into silent record loss',
+  }),
+  Object.freeze({
+    id: 'MUT-TMUX-ACCEPT-EXTRA-ROWS',
+    file: 'src/core/tmuxparse.js',
+    find: `  if (typeof paneCount === 'number' && lines.length !== paneCount) {\n    return {\n      ok: false,\n      reason: \`list-panes returned \${lines.length} rows but the server reports \${paneCount} pane(s)\`,\n    };\n  }`,
+    replace: ``,
+    claimedBy: Object.freeze(['test/tmuxparse.test.mjs']),
+    why: 'an embedded newline then forges extra records under -u',
+  }),
 ]);

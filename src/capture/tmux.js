@@ -1,9 +1,10 @@
 import { existsSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
+import { isSupportedTmuxVersion, parseTmuxVersion } from '../core/tmuxver.js';
 import { procexec } from '../io/procexec.js';
 
-const MIN_MAJOR = 3;
-const MIN_MINOR = 7;
+export { isSupportedTmuxVersion, parseTmuxVersion };
+
 const SETTLE_MS = 200;
 const PRINTF_COMMAND = String.raw`printf '\033[31mRED\033[0m plain\n'`;
 
@@ -42,18 +43,6 @@ export function buildTmuxPlan(cell, pid) {
   plan.push([...client, ...CELL_ARGV[cell]]);
   plan.push([...client, 'kill-server']);
   return plan;
-}
-
-export function parseTmuxVersion(output) {
-  const match = /tmux\s+(\d+)\.(\d+)/i.exec(String(output));
-  if (match === null) return null;
-  return { major: Number(match[1]), minor: Number(match[2]), raw: String(output).trim() };
-}
-
-export function isSupportedTmuxVersion(version) {
-  if (version === null) return false;
-  if (version.major !== MIN_MAJOR) return version.major > MIN_MAJOR;
-  return version.minor >= MIN_MINOR;
 }
 
 async function checkTmux(env, exec) {
