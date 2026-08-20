@@ -193,4 +193,30 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/binding.test.mjs']),
     why: 'a weak witness (VendorRegistry, Heuristic) must never itself promote a binding to Bound -- only a strong witness may authorize a write-eligible pane',
   }),
+
+  // --- T4 mutants
+  Object.freeze({
+    id: 'MUT-STORE-SKIP-FSTAT',
+    file: 'src/io/store.js',
+    find: `if ((st.mode & 0o077) !== 0) {`,
+    replace: `if (false) {`,
+    claimedBy: Object.freeze(['test/store.test.mjs']),
+    why: "a store that stops verifying the fd's mode publishes state at whatever the caller's umask allows",
+  }),
+  Object.freeze({
+    id: 'MUT-STORE-TEMP-ELSEWHERE',
+    file: 'src/io/store.js',
+    find: `path.join(path.dirname(targetPath), `,
+    replace: `path.join('/tmp', `,
+    claimedBy: Object.freeze(['test/store.test.mjs']),
+    why: 'a temp file on another filesystem makes the rename non-atomic and a crash mid-write leaves state the next start cannot parse',
+  }),
+  Object.freeze({
+    id: 'MUT-STORE-MODE-0644',
+    file: 'src/io/store.js',
+    find: `{ mode = 0o600, beforeRename } = {}`,
+    replace: `{ mode = 0o644, beforeRename } = {}`,
+    claimedBy: Object.freeze(['test/store.test.mjs']),
+    why: 'the default mode is the one every typed writer rides on',
+  }),
 ]);
