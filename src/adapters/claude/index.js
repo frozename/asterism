@@ -1,6 +1,7 @@
 import { captures, profileFile } from './captures.js';
 import { discovery } from './discover.js';
 import { hookSupport } from './hooks.js';
+import { installSupport } from './install.js';
 import { compareVersions, rank, UNKNOWN, validateRecord } from '../../core/caps.js';
 
 function binaryCandidates(home) {
@@ -137,6 +138,7 @@ export default Object.freeze({
   id: 'claude',
   ...discovery,
   ...hookSupport,
+  ...installSupport,
   captures,
   profileFile,
   measuredOn,

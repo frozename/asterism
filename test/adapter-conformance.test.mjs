@@ -179,3 +179,49 @@ for (const adapter of registry.values()) {
     assert.ok(folded.records.length >= 1);
   });
 }
+
+// ---- T10: install plans ----
+
+const { readFile: readInstallSource } = await import('node:fs/promises');
+const { MANAGED_FILE_MARKER } = await import('../src/io/cfgedit.js');
+
+function isFrozenInstallPlan(plan) {
+  return (
+    Object.isFrozen(plan) &&
+    plan.length >= 2 &&
+    plan.every(
+      (entry) =>
+        Object.isFrozen(entry) && typeof entry.targetPath === 'string' && typeof entry.content === 'string',
+    )
+  );
+}
+
+test('install-plan tier has at least one implementation', () => {
+  assert.ok(
+    [...registry.values()].some((adapter) => typeof adapter.installPlan === 'function'),
+    'install-plan conformance enumerated no adapter implementation',
+  );
+});
+
+test('control: a mutable synthetic install plan fails the frozen-plan predicate', () => {
+  assert.equal(isFrozenInstallPlan([{ targetPath: '/home/u/x', content: MANAGED_FILE_MARKER }]), false);
+});
+
+for (const adapter of registry.values()) {
+  if (typeof adapter.installPlan !== 'function') continue;
+
+  test(`${adapter.id}: install plan is frozen, owned, marked, profile-disjoint, and uses the absolute hook binary`, () => {
+    const plan = adapter.installPlan('/repo', '/home/u');
+    assert.ok(isFrozenInstallPlan(plan));
+    assert.ok(plan.every((entry) => entry.targetPath.startsWith('/home/u/')));
+    assert.ok(plan.every((entry) => entry.targetPath !== adapter.profileFile('/home/u')));
+    assert.ok(plan.every((entry) => entry.content.includes(MANAGED_FILE_MARKER)));
+    assert.ok(plan.some((entry) => entry.content.includes('/repo/bin/ast-hook ')));
+  });
+
+  test(`${adapter.id}: install plan source is filesystem- and process-exec-free`, async () => {
+    const source = await readInstallSource(path.join(ROOT, 'src', 'adapters', adapter.id, 'install.js'), 'utf8');
+    assert.equal(source.includes('node:fs'), false);
+    assert.equal(source.includes('node:child_process'), false);
+  });
+}

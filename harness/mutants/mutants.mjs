@@ -374,4 +374,22 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/ast-hook.test.mjs']),
     why: "an unbounded stdin read hands a hostile payload unlimited memory inside someone else's critical path",
   }),
+
+  // --- T10 mutants
+  Object.freeze({
+    id: 'MUT-IDENTITY-NO-REFUSE',
+    file: 'src/io/identity.js',
+    find: `  return Object.freeze({ path: identityPath, note: result.note });`,
+    replace: `  return null;`,
+    claimedBy: Object.freeze(['test/identity.test.mjs']),
+    why: 'an installer that never refuses on a tampered manifest silently acts on a binary someone else rewrote',
+  }),
+  Object.freeze({
+    id: 'MUT-UNINSTALL-LEAVES-MARKERS',
+    file: 'src/cli/verbs/uninstall.js',
+    find: `  if (!options.dryRun && tmuxPlan.action !== 'noop') {`,
+    replace: `  if (false) {`,
+    claimedBy: Object.freeze(['test/init-uninstall.test.mjs']),
+    why: 'an uninstall that leaves the managed block is how stale config accretes -- the exact fossil record the uninstall verb exists to prevent',
+  }),
 ]);

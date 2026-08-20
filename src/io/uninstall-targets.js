@@ -67,4 +67,16 @@ export const UNINSTALL_TARGETS = Object.freeze([
     matches: '.plist',
     description: 'pre-covers any bare plist-suffix scan line; self-covering since its own source line matches itself.',
   }),
+  Object.freeze({
+    id: 'tmux-keybind-ls-popup',
+    kind: 'report-only',
+    matches: 'bind-key g ',
+    description: 'the ls popup keybinding inside the cockpit-keys managed block; the artifact is owned by tmux-conf-managed-block.',
+  }),
+  Object.freeze({
+    id: 'tmux-keybind-go-popup',
+    kind: 'report-only',
+    matches: 'bind-key G ',
+    description: 'the go popup keybinding inside the cockpit-keys managed block; the artifact is owned by tmux-conf-managed-block.',
+  }),
 ]);

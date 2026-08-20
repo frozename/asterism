@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { adapters } from '../src/adapters/index.js';
 import { listVerbs, loadVerb } from '../src/cli/router.js';
 import { refuseIfAgentInvoked } from '../src/core/refuse.js';
+import { guardIdentity } from '../src/io/identity.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VERBS_DIR = path.join(ROOT, 'src', 'cli', 'verbs');
@@ -36,6 +37,17 @@ async function main(argv) {
       process.stderr.write(
         `ast: refusing to run mutating verb "${verbName}" -- rule ${refusal.rule} ` +
           `(${refusal.adapter} session marker ${refusal.marker} present in the environment)\n`,
+      );
+      return 1;
+    }
+  }
+
+  if (verb.mutating && verbName !== 'init' && verbName !== 'uninstall') {
+    const mismatch = await guardIdentity({ root: ROOT, env: process.env });
+    if (mismatch !== null) {
+      process.stderr.write(
+        `ast: refusing to run mutating verb "${verbName}" -- rule R9 ` +
+          `(identity manifest at ${mismatch.path} does not match the installed tree; reinstall with ast init)\n`,
       );
       return 1;
     }
