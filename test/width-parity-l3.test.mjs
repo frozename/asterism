@@ -6,58 +6,23 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 
+import { l3Gate } from '../harness/l3.mjs';
 import { displayWidth } from '../src/core/width.js';
 
 // Gated: RED item 11 calls this unconditional, but GitHub's ubuntu runners ship
 // tmux 3.4 while the floor this table needs is 3.7 (the reference machine runs
-// 3.7c, so this gate opens hard on every local worktree). A below-floor or
-// unresolvable tmux registers as todo, naming the floor and what was found --
-// never a silent skip.
+// 3.7c). A below-floor/unresolvable tmux or an environment where a hermetic
+// server cannot boot registers as todo, naming the floor/version or boot
+// error -- never a silent skip.
 //
-// Named seam: hoist this gate onto harness/l3.mjs once the T5 slice lands.
 const execFileAsync = promisify(execFile);
 const IS_BUN = typeof globalThis.Bun !== 'undefined';
-const FLOOR_MAJOR = 3;
-const FLOOR_MINOR = 7;
-const VERSION_PATTERN = /^tmux (\d+)\.(\d+)/;
 const LABEL = `asterism-test-${process.pid}`;
 
-async function probeTmux(env) {
-  try {
-    const { stdout } = await execFileAsync('tmux', ['-V'], {
-      env: { PATH: env.PATH ?? '' },
-    });
-    return { ok: true, stdout };
-  } catch {
-    return { ok: false };
-  }
-}
-
-function decideL3(env, probe) {
-  if (env.ASTERISM_L3 === '1') return { run: true };
-
-  if (!probe.ok) {
-    return { run: false, reason: 'tmux floor is 3.7; tmux was unresolvable on PATH' };
-  }
-
-  const trimmed = (probe.stdout ?? '').trim();
-  const match = trimmed.match(VERSION_PATTERN);
-  if (match === null) {
-    return { run: false, reason: `tmux floor is 3.7; could not parse a version out of "${trimmed}"` };
-  }
-
-  const major = Number(match[1]);
-  const minor = Number(match[2]);
-  if (major > FLOOR_MAJOR || (major === FLOOR_MAJOR && minor >= FLOOR_MINOR)) {
-    return { run: true };
-  }
-  return { run: false, reason: `tmux floor is 3.7; found ${major}.${minor}` };
-}
-
-const GATE = decideL3(process.env, await probeTmux(process.env));
+const GATE = await l3Gate({ PATH: process.env.PATH ?? '', ASTERISM_L3: process.env.ASTERISM_L3 });
 
 function gatedTest(name, fn) {
-  if (GATE.run) {
+  if (GATE.mode === 'run') {
     test(name, fn);
   } else if (IS_BUN) {
     test.todo(name, () => {
@@ -67,43 +32,6 @@ function gatedTest(name, fn) {
     test(name, { todo: GATE.reason }, () => {});
   }
 }
-
-// -- Always-run unit cases over injected inputs; these never touch a real tmux. --
-
-test('decideL3: ASTERISM_L3=1 forces a run even when tmux is unresolvable -- fail loud, never degrade', () => {
-  assert.equal(decideL3({ ASTERISM_L3: '1' }, { ok: false }).run, true);
-});
-
-test('decideL3: an unforced run follows a passing probe when the version clears the 3.7 floor', () => {
-  assert.equal(decideL3({}, { ok: true, stdout: 'tmux 3.7c\n' }).run, true);
-  assert.equal(decideL3({}, { ok: true, stdout: 'tmux 3.8\n' }).run, true);
-});
-
-test('decideL3: below the 3.7 floor is not run, and the reason names both the floor and the found version', () => {
-  const decision = decideL3({}, { ok: true, stdout: 'tmux 3.4\n' });
-  assert.equal(decision.run, false);
-  assert.match(decision.reason, /3\.7/);
-  assert.match(decision.reason, /3\.4/);
-});
-
-test('decideL3: a malformed version string is never run', () => {
-  const decision = decideL3({}, { ok: true, stdout: 'tmux next-3.8\n' });
-  assert.equal(decision.run, false);
-  assert.match(decision.reason, /3\.7/);
-  assert.match(decision.reason, /tmux next-3\.8/);
-});
-
-test('decideL3: an unresolvable probe is not run, and the reason names the 3.7 floor', () => {
-  const decision = decideL3({}, { ok: false });
-  assert.equal(decision.run, false);
-  assert.match(decision.reason, /3\.7/);
-});
-
-test('probeTmux: tmux absent from PATH (a fresh empty directory, never unset or empty-string PATH) resolves ok:false', async () => {
-  const emptyBin = mkdtempSync(path.join(os.tmpdir(), 'asterism-l3-empty-bin-'));
-  const probe = await probeTmux({ PATH: emptyBin });
-  assert.equal(probe.ok, false);
-});
 
 // -- Gated parity cases: a real, sandboxed, private tmux server. --
 

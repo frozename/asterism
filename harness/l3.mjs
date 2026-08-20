@@ -1,4 +1,5 @@
 import { existsSync, unlinkSync } from 'node:fs';
+import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isSupportedTmuxVersion, parseTmuxVersion } from '../src/core/tmuxver.js';
 import { procexec } from '../src/io/procexec.js';
@@ -6,6 +7,9 @@ import { procexec } from '../src/io/procexec.js';
 const MIN_MAJOR = 3;
 const MIN_MINOR = 7;
 const ATTACH_SETTLE_MS = 300;
+const bootProbeCache = new WeakMap();
+
+let bootProbeSequence = 0;
 
 export function decideL3({ env, versionOutput }) {
   if (env.ASTERISM_L3 === '1') {
@@ -25,16 +29,160 @@ export function decideL3({ env, versionOutput }) {
   return { mode: 'todo', reason };
 }
 
-export async function l3Gate(env) {
+function environmentCacheKey(env) {
+  const effective = Object.entries(env)
+    .filter(([, value]) => value !== undefined)
+    .map(([name, value]) => [name, String(value)])
+    .sort(([left], [right]) => left.localeCompare(right));
+  return JSON.stringify(effective);
+}
+
+function commandErrorText(result) {
+  const stderr = result?.stderr?.toString('utf8').trim() ?? '';
+  const stdout = result?.stdout?.toString('utf8').trim() ?? '';
+  const detail = stderr.length > 0 ? stderr : stdout;
+
+  if (result?.timedOut === true) return `tmux probe timed out${detail.length > 0 ? `: ${detail}` : ''}`;
+  if (result?.truncated === true) return `tmux probe exceeded its output limit${detail.length > 0 ? `: ${detail}` : ''}`;
+  if (detail.length > 0) return detail;
+  return `tmux probe exited ${result?.code ?? 'without a status'}`;
+}
+
+function reportedProbeSocketPath(result, label) {
+  const socketPath = result?.stdout?.toString('utf8').trim() ?? '';
+  if (!path.isAbsolute(socketPath)) return null;
+  if (path.basename(socketPath) !== label) return null;
+  if (!path.basename(path.dirname(socketPath)).startsWith('tmux-')) return null;
+  return socketPath;
+}
+
+function bootFailureText(result) {
+  if (result?.code !== 0 || result?.timedOut === true || result?.truncated === true) {
+    return commandErrorText(result);
+  }
+
+  const stderr = result?.stderr?.toString('utf8').trim() ?? '';
+  if (stderr.length > 0) return stderr;
+  const stdout = result?.stdout?.toString('utf8').trim() ?? '';
+  return stdout.length > 0
+    ? `tmux probe reported an invalid socket path: "${stdout}"`
+    : 'tmux probe did not report its socket path';
+}
+
+function reportsNoServer(result) {
+  if (result?.code === 0 || result?.timedOut === true || result?.truncated === true) return false;
+  const text = `${result?.stderr?.toString('utf8') ?? ''}\n${result?.stdout?.toString('utf8') ?? ''}`.toLowerCase();
+  return text.includes('no server running') || text.includes('no such file or directory');
+}
+
+async function probeServerGone(label, env, execute) {
+  try {
+    const result = await execute(['tmux', '-L', label, 'display-message', '-p', '#{socket_path}'], { env });
+    return reportsNoServer(result);
+  } catch {
+    return false;
+  }
+}
+
+function removeProbeSocket(socketPath) {
+  try {
+    unlinkSync(socketPath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') return `failed to remove probe socket "${socketPath}": ${error.message}`;
+  }
+  return existsSync(socketPath) ? `probe socket "${socketPath}" still exists after kill-server` : null;
+}
+
+async function probeServerBoot(env, execute) {
+  bootProbeSequence += 1;
+  const label = `asterism-test-l3-probe-${process.pid}-${bootProbeSequence}`;
+  let result;
+  let bootErrorText = null;
+
+  try {
+    result = await execute(
+      [
+        'tmux', '-u', '-L', label, '-f', '/dev/null', 'new-session', '-d', '-P', '-F', '#{socket_path}',
+        '-x', '80', '-y', '24',
+      ],
+      { env },
+    );
+  } catch (error) {
+    bootErrorText = error?.message ?? String(error);
+  }
+
+  const socketPath = reportedProbeSocketPath(result, label);
+  if (
+    bootErrorText === null &&
+    (result?.code !== 0 || result.timedOut === true || result.truncated === true || socketPath === null)
+  ) {
+    bootErrorText = bootFailureText(result);
+  }
+
+  let killErrorText = null;
+  let serverGone = false;
+  try {
+    const killResult = await execute(['tmux', '-L', label, 'kill-server'], { env });
+    if (killResult.code === 0 && killResult.timedOut !== true && killResult.truncated !== true) {
+      serverGone = true;
+    } else {
+      killErrorText = commandErrorText(killResult);
+      serverGone = reportsNoServer(killResult);
+    }
+  } catch (error) {
+    killErrorText = error?.message ?? String(error);
+  }
+
+  if (!serverGone) serverGone = await probeServerGone(label, env, execute);
+  if (!serverGone) {
+    const bootDetail = bootErrorText === null ? '' : `${bootErrorText}; `;
+    return { ok: false, detail: `${bootDetail}probe cleanup failed: ${killErrorText ?? 'server still reachable'}` };
+  }
+
+  if (socketPath !== null) {
+    const removalError = removeProbeSocket(socketPath);
+    if (removalError !== null) {
+      const bootDetail = bootErrorText === null ? '' : `${bootErrorText}; `;
+      return { ok: false, detail: `${bootDetail}${removalError}` };
+    }
+  }
+  if (bootErrorText !== null) return { ok: false, detail: bootErrorText };
+  return { ok: true };
+}
+
+function cachedServerBootProbe(env, execute) {
+  let byEnvironment = bootProbeCache.get(execute);
+  if (byEnvironment === undefined) {
+    byEnvironment = new Map();
+    bootProbeCache.set(execute, byEnvironment);
+  }
+
+  const key = environmentCacheKey(env);
+  let probe = byEnvironment.get(key);
+  if (probe === undefined) {
+    probe = probeServerBoot(env, execute);
+    byEnvironment.set(key, probe);
+  }
+  return probe;
+}
+
+export async function l3Gate(env, { execute = procexec } = {}) {
   let versionOutput = null;
   try {
-    const result = await procexec(['tmux', '-V'], { env });
+    const result = await execute(['tmux', '-V'], { env });
     if (result.code === 0) versionOutput = result.stdout.toString('utf8');
   } catch {
     versionOutput = null;
   }
 
-  return decideL3({ env, versionOutput });
+  const decision = decideL3({ env, versionOutput });
+  if (decision.mode !== 'run' || decision.hard === true) return decision;
+
+  const boot = await cachedServerBootProbe(env, execute);
+  if (!boot.ok) {
+    return { mode: 'todo', reason: `L3 gated: tmux server boot probe failed: ${boot.detail}` };
+  }
+  return decision;
 }
 
 // kill-server stops the server process but does not reliably unlink its
