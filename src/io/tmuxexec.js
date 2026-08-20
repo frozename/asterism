@@ -7,6 +7,7 @@ export const TARGET_ID = /^[$@%]\d+$/;
 export const FORMAT_REJECT = /[#;$\n\r\x00-\x1f]/;
 export const LIST_PANES_FORMAT = '#{pane_id}|#{pane_pid}|#{session_id}|#{window_id}|#{pane_dead}|#{pane_mode}|#{@asterism_sid}';
 export const LIST_CLIENTS_FORMAT = '#{client_name}|#{session_id}|#{client_activity}';
+export const NEW_WINDOW_FORMAT = '#{pane_id}';
 
 function assertValidTarget(target) {
   if (typeof target !== 'string' || !TARGET_ID.test(target)) {
@@ -38,6 +39,30 @@ export async function execTmux(args, { socketPath, env, execute = procexec }) {
   }
 
   return execute(['tmux', '-u', '-S', socketPath, ...args], { env });
+}
+
+// Detached is the default because spawning a pane must not move the human's
+// current tmux view. `detached: false` is the explicit --switch opt-in.
+export async function newWindow({ cwd, detached = true, socketPath, env, execute } = {}) {
+  if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) {
+    throw new Error(`new-window cwd ${JSON.stringify(cwd)} must be an absolute path`);
+  }
+  assertFormatSafe(cwd);
+
+  const result = await execTmux(
+    ['new-window', ...(detached ? ['-d'] : []), '-P', '-F', NEW_WINDOW_FORMAT, '-c', cwd],
+    { socketPath, env, execute },
+  );
+  const stderr = result.stderr.toString('utf8').trim();
+  if (result.code !== 0) {
+    throw new Error(`tmux new-window failed: ${stderr}`);
+  }
+
+  const paneId = result.stdout.toString('utf8').trim();
+  if (!TARGET_ID.test(paneId) || !paneId.startsWith('%')) {
+    throw new Error(`tmux new-window returned invalid pane id ${JSON.stringify(paneId)}`);
+  }
+  return paneId;
 }
 
 export async function listPanes({ paneCount, ...opts } = {}) {

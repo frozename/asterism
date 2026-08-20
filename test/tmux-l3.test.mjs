@@ -11,7 +11,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { decideL3, l3Gate, withAttachedClient, withSandboxServer } from '../harness/l3.mjs';
 import { parseListPanes } from '../src/core/tmuxparse.js';
-import { execTmux } from '../src/io/tmuxexec.js';
+import { execTmux, newWindow } from '../src/io/tmuxexec.js';
 
 const IS_BUN = typeof globalThis.Bun !== 'undefined';
 
@@ -318,6 +318,21 @@ registerGated(
     }, { env: { PATH: process.env.PATH ?? '' } });
   },
 );
+
+registerGated('newWindow creates a pane id that list-panes reports in the sandbox server', async () => {
+  const env = { PATH: process.env.PATH ?? '' };
+
+  await withSandboxServer(async ({ socketPath }) => {
+    const paneId = await newWindow({ cwd: process.cwd(), socketPath, env });
+    const listed = await execTmux(['list-panes', '-a', '-F', '#{pane_id}'], { socketPath, env });
+    const paneIds = listed.stdout
+      .toString('utf8')
+      .split('\n')
+      .filter((line) => line.length > 0);
+
+    assert.ok(paneIds.includes(paneId), `${paneId} should be reported by list-panes`);
+  }, { env });
+});
 
 registerGated(
   'list-clients: #{client_session} answers a session name, never $-prefixed -- tmuxexec.listClients only accepts the $-prefixed #{session_id}',

@@ -2,6 +2,7 @@ import { captures, profileFile } from './captures.js';
 import { discovery } from './discover.js';
 import { hookSupport } from './hooks.js';
 import { installSupport } from './install.js';
+import { spawnArgv } from './spawn.js';
 import { compareVersions, rank, UNKNOWN, validateRecord } from '../../core/caps.js';
 
 function binaryCandidates(home) {
@@ -141,6 +142,7 @@ export default Object.freeze({
   ...installSupport,
   captures,
   profileFile,
+  spawnArgv,
   measuredOn,
   capabilities,
   detect,

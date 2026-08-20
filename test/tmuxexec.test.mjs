@@ -10,6 +10,8 @@ import {
   attachSessionForeground,
   execTmux,
   listPanes,
+  NEW_WINDOW_FORMAT,
+  newWindow,
   setUserOption,
   switchClient,
   TARGET_ID,
@@ -176,6 +178,83 @@ test('attachSessionForeground spawns -u/-S/attach-session/-t against the real sh
   assert.ok(log[0].argv.includes('-S'));
   assert.ok(log[0].argv.includes('attach-session'));
   assert.ok(log[0].argv.includes('-t'));
+});
+
+test('newWindow defaults to detached and returns the validated pane id', async () => {
+  const calls = [];
+  const paneId = await newWindow({
+    cwd: '/tmp/project',
+    socketPath: '/tmp/sockets/asterism-test-x',
+    env: fakeEnv(),
+    execute: fakeExecute(calls, { code: 0, stdout: Buffer.from('%7\n'), stderr: Buffer.alloc(0) }),
+  });
+
+  assert.equal(paneId, '%7');
+  assert.deepEqual(calls, [
+    ['tmux', '-u', '-S', '/tmp/sockets/asterism-test-x', 'new-window', '-d', '-P', '-F', '#{pane_id}', '-c', '/tmp/project'],
+  ]);
+});
+
+test('newWindow detached false omits only the detached flag', async () => {
+  const calls = [];
+  const paneId = await newWindow({
+    cwd: '/tmp/project',
+    detached: false,
+    socketPath: '/tmp/sockets/asterism-test-x',
+    env: fakeEnv(),
+    execute: fakeExecute(calls, { code: 0, stdout: Buffer.from('%8\n'), stderr: Buffer.alloc(0) }),
+  });
+
+  assert.equal(paneId, '%8');
+  assert.deepEqual(calls, [
+    ['tmux', '-u', '-S', '/tmp/sockets/asterism-test-x', 'new-window', '-P', '-F', '#{pane_id}', '-c', '/tmp/project'],
+  ]);
+});
+
+test('newWindow format is the pinned pane-id format constant', () => {
+  assert.equal(NEW_WINDOW_FORMAT, '#{pane_id}');
+});
+
+test('newWindow rejects unsafe cwd values before spawning and accepts a plain absolute cwd', async () => {
+  const calls = [];
+  const opts = {
+    socketPath: '/tmp/sockets/asterism-test-x',
+    env: fakeEnv(),
+    execute: fakeExecute(calls, { code: 0, stdout: Buffer.from('%7\n'), stderr: Buffer.alloc(0) }),
+  };
+
+  await assert.rejects(() => newWindow({ cwd: 'relative/project', ...opts }), /must be an absolute path/);
+  await assert.rejects(() => newWindow({ cwd: '/tmp/#{pane_id}', ...opts }), /#\{pane_id\}/);
+  await assert.rejects(() => newWindow({ cwd: '/tmp/a;b', ...opts }), /a;b/);
+  await assert.rejects(() => newWindow({ cwd: '-tmp/project', ...opts }), /must be an absolute path/);
+  assert.equal(calls.length, 0);
+
+  await newWindow({ cwd: '/tmp/project', ...opts });
+  assert.equal(calls.length, 1);
+});
+
+test('newWindow rejects failed tmux exits and non-pane stdout before returning a target', async () => {
+  const opts = { cwd: '/tmp/project', socketPath: '/tmp/sockets/asterism-test-x', env: fakeEnv() };
+
+  await assert.rejects(
+    () =>
+      newWindow({
+        ...opts,
+        execute: fakeExecute([], { code: 1, stdout: Buffer.from('%7\n'), stderr: Buffer.from('no server running\n') }),
+      }),
+    /no server running/,
+  );
+
+  for (const stdout of ['', '@3', 'no server running']) {
+    await assert.rejects(
+      () =>
+        newWindow({
+          ...opts,
+          execute: fakeExecute([], { code: 0, stdout: Buffer.from(stdout), stderr: Buffer.alloc(0) }),
+        }),
+      /new-window/,
+    );
+  }
 });
 
 test('every argv this file observed -- real shim log lines and fake-execute recordings alike -- begins with "-u"', async () => {

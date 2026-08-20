@@ -462,4 +462,61 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/lifecycle.test.mjs']),
     why: 'defaulting an unknown state turns a vocabulary defect into an unrelated result or runtime error',
   }),
+  // --- T14 mutants
+  Object.freeze({
+    id: 'MUT-NEWWINDOW-NO-DETACH',
+    file: 'src/io/tmuxexec.js',
+    find: `    ['new-window', ...(detached ? ['-d'] : []), '-P', '-F', NEW_WINDOW_FORMAT, '-c', cwd],`,
+    replace: `    ['new-window', '-P', '-F', NEW_WINDOW_FORMAT, '-c', cwd],`,
+    claimedBy: Object.freeze(['test/tmuxexec.test.mjs']),
+    why: 'a default spawn that omits detached mode moves the human tmux view as a side effect',
+  }),
+  Object.freeze({
+    id: 'MUT-NEWWINDOW-RELATIVE-CWD',
+    file: 'src/io/tmuxexec.js',
+    find: `  if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) {`,
+    replace: `  if (typeof cwd !== 'string' || false) {`,
+    claimedBy: Object.freeze(['test/tmuxexec.test.mjs']),
+    why: 'a relative cwd resolves against the tmux server rather than the caller',
+  }),
+  Object.freeze({
+    id: 'MUT-NEWWINDOW-FORMAT-UNSAFE-CWD',
+    file: 'src/io/tmuxexec.js',
+    find: `  assertFormatSafe(cwd);\n`,
+    replace: ``,
+    claimedBy: Object.freeze(['test/tmuxexec.test.mjs']),
+    why: 'a format-expanded cwd can turn path bytes into tmux format output',
+  }),
+  Object.freeze({
+    id: 'MUT-NEWWINDOW-RAW-STDOUT',
+    file: 'src/io/tmuxexec.js',
+    find: `  const paneId = result.stdout.toString('utf8').trim();\n  if (!TARGET_ID.test(paneId) || !paneId.startsWith('%')) {\n    throw new Error(\`tmux new-window returned invalid pane id \${JSON.stringify(paneId)}\`);\n  }\n  return paneId;`,
+    replace: `  return result.stdout.toString('utf8');`,
+    claimedBy: Object.freeze(['test/tmuxexec.test.mjs']),
+    why: 'returning raw tmux output lets an unvalidated or untrimmed target reach persistent state',
+  }),
+  Object.freeze({
+    id: 'MUT-SPAWNARGV-ACCEPTS-ULID',
+    file: 'src/core/uuid.js',
+    find: `export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;`,
+    replace: `export const UUID_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9A-HJKMNP-TV-Z]{26})$/;`,
+    claimedBy: Object.freeze(['test/adapter-conformance.test.mjs', 'test/uuid.test.mjs']),
+    why: 'the vendor launch flag requires a UUID; accepting the primary store id shape conflates two identities',
+  }),
+  Object.freeze({
+    id: 'MUT-UUID-ACCEPTS-ANY-VERSION',
+    file: 'src/core/uuid.js',
+    find: `export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;`,
+    replace: `export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;`,
+    claimedBy: Object.freeze(['test/uuid.test.mjs']),
+    why: 'dropping the version nibble silently re-admits non-v4 UUIDs at every adapter boundary',
+  }),
+  Object.freeze({
+    id: 'MUT-SPAWNARGV-UNFROZEN',
+    file: 'src/adapters/claude/spawn.js', // quarantine-exempt: real adapter path this mutant patches.
+    find: `  return Object.freeze(['claude', '--session-id', sessionId]);`, // quarantine-exempt: real adapter argv string this mutant patches.
+    replace: `  return ['claude', '--session-id', sessionId];`, // quarantine-exempt: real adapter argv string this mutant patches.
+    claimedBy: Object.freeze(['test/adapter-conformance.test.mjs']),
+    why: 'a mutable argv can be altered after validation and before execution',
+  }),
 ]);

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { buildRegistry } from '../src/adapters/index.js';
 import { rank, validateRecord } from '../src/core/caps.js';
+import { createUuidMinter } from '../src/core/uuid.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FAKE_ROOT = path.join(ROOT, 'vectors', 'fake');
@@ -15,6 +16,19 @@ function enumerationMessage(n) {
 
 function assertEnumeration(registry) {
   assert.ok(registry.size >= 2, enumerationMessage(registry.size));
+}
+
+function sourcePurityOffenses(source) {
+  return ['node:fs', 'node:child_process', 'process.env', 'Date.now', 'Math.random'].filter((needle) =>
+    source.includes(needle),
+  );
+}
+
+function mintedUuid() {
+  const mint = createUuidMinter({
+    random: () => Uint8Array.from([0, 1, 2, 3, 4, 5, 70, 135, 136, 9, 10, 11, 12, 13, 14, 15]),
+  });
+  return mint();
 }
 
 // ---- L0: registry gating ----
@@ -129,6 +143,38 @@ for (const adapter of registry.values()) {
 
     const result = adapter.effectiveCapabilities(detected);
     assert.ok(Object.isFrozen(result));
+  });
+}
+
+// ---- T14: spawn argv ----
+
+const { readFile: readSpawnSource } = await import('node:fs/promises');
+const SHELL_META = /[;&|`$<>]/;
+
+test('control: spawn source purity scan flags process, filesystem, clock, and random sources', () => {
+  const synthetic = "import fs from 'node:fs';\nprocess.env.X; Date.now(); Math.random();\n";
+  assert.deepEqual(sourcePurityOffenses(synthetic), ['node:fs', 'process.env', 'Date.now', 'Math.random']);
+});
+
+for (const adapter of registry.values()) {
+  test(`${adapter.id}: spawnArgv exists unconditionally and returns frozen string argv`, () => {
+    assert.equal(typeof adapter.spawnArgv, 'function');
+
+    const argv = adapter.spawnArgv({ sessionId: mintedUuid() });
+    assert.equal(Array.isArray(argv), true);
+    assert.equal(Object.isFrozen(argv), true);
+    assert.ok(argv.length > 0);
+    assert.equal(argv.every((entry) => typeof entry === 'string'), true);
+    assert.equal(argv.every((entry) => !SHELL_META.test(entry)), true);
+  });
+
+  test(`${adapter.id}: spawnArgv rejects non-UUID session ids`, () => {
+    assert.throws(() => adapter.spawnArgv({ sessionId: '01ARYZ6S410000000000000000' }), /sessionId/);
+  });
+
+  test(`${adapter.id}: spawn argv source is filesystem-, process-, clock-, and random-free`, async () => {
+    const source = await readSpawnSource(path.join(ROOT, 'src', 'adapters', adapter.id, 'spawn.js'), 'utf8');
+    assert.deepEqual(sourcePurityOffenses(source), []);
   });
 }
 
