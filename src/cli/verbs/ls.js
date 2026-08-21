@@ -1,5 +1,6 @@
 import os from 'node:os';
 import { setTimeout } from 'node:timers/promises';
+import { emitNotes } from '../notes.js';
 import { collectSessions, sessionsPayload } from '../pipeline.js';
 import { compareRecords, statusLabel } from '../../core/reconcile.js';
 import { table, untrusted } from '../../core/render.js';
@@ -49,12 +50,6 @@ export function formatLs(records, { maxWidth = 40 } = {}) {
   ]);
   const body = table(rows);
   return body.length === 0 ? `${header}\n` : `${header}\n${body}\n`;
-}
-
-function emitNotes(notes) {
-  for (const entry of notes) {
-    process.stderr.write(`note: ${entry.adapter}: ${entry.note}: ${entry.detail}\n`);
-  }
 }
 
 function waitingExit(waiting) {

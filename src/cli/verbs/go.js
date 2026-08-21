@@ -1,4 +1,5 @@
 import os from 'node:os';
+import { emitNotes } from '../notes.js';
 import { collectSessions, resolveSessionRef } from '../pipeline.js';
 import { descendsFrom, parseVendorPaneWitness, STRONG_WITNESSES, WEAK_WITNESSES } from '../../core/binding.js';
 import { ancestry } from '../../io/procs.js';
@@ -122,7 +123,8 @@ export async function run(argv, ctx) {
   }
 
   const store = await openStore({ env: ctx.env });
-  const { records } = await collectSessions({ env: ctx.env, adapters: ctx.adapters, home: os.homedir(), store });
+  const { records, notes } = await collectSessions({ env: ctx.env, adapters: ctx.adapters, home: os.homedir(), store });
+  emitNotes(notes);
   if (records.length === 0) return refusal('no sessions');
   const resolved = options.ref === null ? { record: records[0] } : resolveSessionRef(records, options.ref);
   if (resolved.error) return refusal(resolved.error);
@@ -130,11 +132,14 @@ export async function run(argv, ctx) {
 
   const bindings = await readBindings(store.stateDir);
   const binding = pickBinding(bindings.records, record);
+  const serverNotes = [];
   const servers = await resolveServers({
     env: ctx.env,
     uid: process.getuid(),
     probe: ({ socketPath, env }) => serverInfo({ socketPath, env }),
+    notes: serverNotes,
   });
+  emitNotes(serverNotes);
   if (servers.length === 0) return refusal('no tmux server reachable');
 
   if (binding !== null) {

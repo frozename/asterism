@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
+import { emitNotes } from '../src/cli/notes.js';
 import { formatLs } from '../src/cli/verbs/ls.js';
 import { checkSchema } from '../src/core/schema-check.js';
 
@@ -79,6 +80,28 @@ function codePointsOf(text) {
 function hitsAnyRange(codePoints, ranges) {
   return codePoints.some((point) => ranges.some(([lo, hi]) => point >= lo && point <= hi));
 }
+
+test('emitNotes preserves the ls diagnostic format through an injected sink', () => {
+  const chunks = [];
+  emitNotes([
+    { adapter: 'tmux', note: 'socket-probe-failed', detail: '/tmp/socket: permission denied' },
+    { adapter: 'store', note: 'session-unreadable', detail: '0001.json: malformed' },
+  ], (chunk) => chunks.push(chunk));
+
+  assert.equal(
+    chunks.join(''),
+    'note: tmux: socket-probe-failed: /tmp/socket: permission denied\n' +
+      'note: store: session-unreadable: 0001.json: malformed\n',
+  );
+});
+
+test('ls emits collected notes through the shared stderr format', async () => {
+  const result = await runAst([]);
+
+  assert.equal(result.code, 0);
+  assert.match(result.stderr, /^note: [a-z][a-z0-9-]*: adapter-unavailable: .+$/m);
+  assert.equal(result.stdout, '0 sessions · 0 need you\n');
+});
 
 test('ast ls never invokes tmux while a PATH control proves the shim is executable', async () => {
   const tmp = await scratch('ast-ls-no-tmux-');

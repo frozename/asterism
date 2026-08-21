@@ -165,6 +165,32 @@ test('no reachable server is distinct from an empty pane list', async () => {
   assert.equal((await runAst(control, ['go', 'fake-0001'])).code, 0);
 });
 
+test('collectSessions notes precede the no-sessions refusal', async () => {
+  const h = await harness({ sessions: [] });
+  await writeFile(path.join(h.fakeRoot, 'sessions', 'malformed.json'), '{');
+
+  const result = await runAst(h, ['go']);
+
+  assert.equal(result.code, 1);
+  const note = 'note: fake: adapter-unavailable:';
+  const refusal = 'no sessions';
+  assert.ok(result.stderr.includes(note), result.stderr);
+  assert.ok(result.stderr.indexOf(note) < result.stderr.indexOf(refusal), result.stderr);
+});
+
+test('resolveServers notes precede the no-server refusal', async () => {
+  const h = await harness();
+  await chmod(path.join(h.shimDir, 'tmux'), 0o644);
+
+  const result = await runAst(h, ['go', 'fake-0001']);
+
+  assert.equal(result.code, 1);
+  const note = 'note: tmux: socket-probe-failed:';
+  const refusal = 'no tmux server reachable';
+  assert.ok(result.stderr.includes(note), result.stderr);
+  assert.ok(result.stderr.indexOf(note) < result.stderr.indexOf(refusal), result.stderr);
+});
+
 test('no-arg go chooses waiting first; ambiguous refs fail while a unique prefix resolves', async () => {
   const h = await harness({ sessions: [{ id: 'idle-one', status: 'idle' }, { id: 'waiting-one', status: 'waiting' }] });
   await seedBinding(h, { sessionId: 'waiting-one', target: '%9' });
