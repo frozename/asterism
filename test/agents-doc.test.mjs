@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -92,4 +93,66 @@ test('control: the fence extractor takes fenced lines and leaves prose alone', (
 
   assert.deepEqual(fencedCommands(markdown), ['node --test', 'bun test']);
   assert.deepEqual(fragileRefUsages(fencedCommands(markdown)), []);
+});
+
+// A path in backticks is normally a claim that the file enforces what the
+// sentence around it says, and a claim about a file that no longer exists is
+// the cheapest kind of documentation rot. Not every citation is that, though:
+// some name a path to explain what would happen if it existed. Those are
+// declared here with the reason, so the exemption is a decision on the record
+// rather than a hole in the check.
+const HYPOTHETICAL_CITATIONS = Object.freeze({
+  'test/index.js':
+    'named to explain what `node --test test/` would resolve the directory argument to; the file deliberately does not exist',
+});
+
+const CITATION_PATTERN = /`((?:src|bin|test|harness|schema|\.github|\.githooks)\/[^`\s]+)`/g;
+
+// The zero below is only worth something if the extractor found citations.
+const MINIMUM_CITATION_COUNT = 6;
+
+export function citedPaths(markdown) {
+  return [...markdown.matchAll(CITATION_PATTERN)].map((match) => match[1]);
+}
+
+export function deadCitations(markdown, root, hypothetical = HYPOTHETICAL_CITATIONS) {
+  const dead = [];
+
+  for (const cited of new Set(citedPaths(markdown))) {
+    const declared = Object.hasOwn(hypothetical, cited);
+    const present = existsSync(path.resolve(root, cited));
+
+    if (declared && typeof hypothetical[cited] === 'string' && hypothetical[cited].trim().length > 0) continue;
+    if (declared) dead.push(`${cited}: declared hypothetical without a reason`);
+    else if (!present) dead.push(`${cited}: cited but absent, and not declared hypothetical`);
+  }
+
+  return dead;
+}
+
+test('every path AGENTS.md cites exists, or is declared hypothetical with a reason', async () => {
+  const markdown = await readFile(AGENTS_PATH, 'utf8');
+  const citations = new Set(citedPaths(markdown));
+
+  assert.ok(
+    citations.size >= MINIMUM_CITATION_COUNT,
+    `extracted only ${citations.size} citations from AGENTS.md; the zero below would prove nothing`,
+  );
+
+  const dead = deadCitations(markdown, ROOT);
+  assert.deepEqual(dead, [], `AGENTS.md cites paths that are neither present nor declared:\n${dead.join('\n')}`);
+});
+
+test('control: an absent citation is caught, an undeclared reason is caught, a declared one passes', () => {
+  const absent = 'A claim enforced by `src/agents-doc-path-that-does-not-exist.js`.';
+  assert.equal(deadCitations(absent, ROOT, {}).length, 1, 'checker did not flag an absent citation');
+
+  assert.equal(
+    deadCitations(absent, ROOT, { 'src/agents-doc-path-that-does-not-exist.js': '  ' }).length,
+    1,
+    'checker did not flag a hypothetical declared without a reason',
+  );
+
+  assert.deepEqual(deadCitations(absent, ROOT, { 'src/agents-doc-path-that-does-not-exist.js': 'why it is absent' }), []);
+  assert.deepEqual(deadCitations('A real one: `harness/secret-scan.mjs`.', ROOT, {}), []);
 });

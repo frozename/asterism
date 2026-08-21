@@ -65,16 +65,32 @@ Match the style already in `harness/secret-scan.mjs`: named `export function`,
 
 ## Secret and PII scan
 
-`test/repo-hygiene.test.mjs` runs `harness/secret-scan.mjs` over both the
-files `git add -A` would stage (the union of `git ls-files --cached` and
-`git ls-files --others --exclude-standard`) and the messages of every
-unpushed commit reachable from `HEAD`. With no upstream configured -- this
-repository's current state -- the commit-message scan falls back to every
-commit reachable by `git log --all`; that coverage narrows silently once an
-upstream is set. It tokenises the input, slides a 1-to-4-token window,
+`harness/secret-scan.mjs` tokenises its input, slides a 1-to-4-token window,
 sha256-hashes each window, and checks each hash against a fixture of digests --
 so the plaintext values are never stored in the repo. A finding reports a
-location and a hash, never the matched text.
+location and a hash, never the matched text; `test/commit-format.test.mjs`
+asserts the matched value is absent from the output of a blocked commit.
+
+It runs over two different inputs, in two places.
+
+`test/repo-hygiene.test.mjs` scans the files `git add -A` would stage: the
+union of `git ls-files --cached` and `git ls-files --others
+--exclude-standard`.
+
+The `.githooks/commit-msg` hook scans the message being committed, ahead of
+`harness/commitlint.mjs`, and a finding blocks the commit. Git hands the hook
+exactly one message file, so there is no range to derive. **That hook only runs
+once `git config core.hooksPath .githooks` is set.** Until it is, nothing scans
+a commit message.
+
+`listUnpushedCommits` takes a required range and raises on one it cannot
+resolve. It used to derive its own and fall back to `git log --all`, which made
+coverage a function of facts the scanner does not control -- whether an upstream
+was configured, how deep the clone was, what the remote was named. The same code
+scanned every commit here and none in a fresh clone, and was green either way.
+The test no longer surveys whatever commits happen to be reachable: it builds a
+synthetic history and asserts both directions, that a clean message yields
+nothing and a seeded one yields its line and digest.
 
 The one thing it cannot see: it fires only on values whose digest is already
 in the fixture. Fresh prose someone writes into a commit-message body or an
