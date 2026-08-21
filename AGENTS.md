@@ -87,8 +87,16 @@ needs a human read.
 node --test
 bun test
 git status --short
-git diff --stat $(git merge-base main HEAD)..HEAD
+git diff --stat HEAD
 ```
+
+`git status --short` covers untracked files and `git diff --stat HEAD` covers
+tracked ones, so the two together are the whole change. Neither names a branch,
+a remote, or an ancestor count -- `test/agents-doc.test.mjs` pins that, because
+a command that needs a ref the reader's clone lacks does not fail loudly. Wrap
+`git merge-base main HEAD` in a command substitution and it exits 128 into a
+discarded stderr, leaving `git diff --stat ..HEAD` to print nothing and exit 0.
+The reader is told their change is empty.
 
 Stage explicit paths (`git add <exact paths>`), then commit once with a
 neutral imperative subject.
