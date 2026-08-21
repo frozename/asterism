@@ -1064,6 +1064,16 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/lint.test.mjs']),
     why: 'skipping console-method matches lets product source write through the forbidden console API',
   }),
+  Object.freeze({
+    id: 'MUT-LINT-CLI-SUBPROCESS-DETECTION-EMPTY',
+    file: 'harness/lint/rules/cli-subprocess-uses-node.mjs',
+    find: `    for (const match of masked.matchAll(CURRENT_RUNTIME_LAUNCH)) {
+`,
+    replace: `    for (const match of []) {
+`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'skipping current-runtime launches lets repository executables run under Bun instead of Node',
+  }),
 
   // --- Architecture documentation mutant
   Object.freeze({

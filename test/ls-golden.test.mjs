@@ -14,6 +14,8 @@ import { findLeaks } from '../src/core/scrub.js';
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const AST_BIN = path.join(ROOT, 'bin', 'ast');
+const NODE = typeof globalThis.Bun === 'undefined' ? process.execPath : globalThis.Bun.which('node');
+assert.ok(NODE, 'the test runner could not locate node for CLI subprocesses');
 const IS_BUN = typeof globalThis.Bun !== 'undefined';
 const adapterId = [...buildRegistry({ ASTERISM_FAKE_ROOT: '/x' }).keys()].find((id) => id !== 'fake');
 const adapter = buildRegistry({ ASTERISM_FAKE_ROOT: '/x' }).get(adapterId);
@@ -50,7 +52,7 @@ if (!existsSync(rawPath)) {
       XDG_STATE_HOME: tmp,
       TERM: 'dumb',
     };
-    const { stdout } = await execFileAsync(process.execPath, [AST_BIN, 'ls'], { cwd: ROOT, env, encoding: 'utf8' });
+    const { stdout } = await execFileAsync(NODE, [AST_BIN, 'ls'], { cwd: ROOT, env, encoding: 'utf8' });
     const snapshotPath = path.join(ROOT, 'vectors', 'golden', ...cell.split('/'), 'ls.txt');
     if (process.env.ASTERISM_UPDATE_GOLDEN === '1') {
       await mkdir(path.dirname(snapshotPath), { recursive: true });

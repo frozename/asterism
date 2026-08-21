@@ -11,6 +11,8 @@ import { buildIdentityManifest, verifyIdentity } from '../src/io/identity.js';
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const AST_BIN = path.join(ROOT, 'bin', 'ast');
+const NODE = typeof globalThis.Bun === 'undefined' ? process.execPath : globalThis.Bun.which('node');
+assert.ok(NODE, 'the test runner could not locate node for CLI subprocesses');
 const TEST_INSTALL_ID = 'TESTULID0000000000000000';
 
 async function makeEnv(prefix) {
@@ -36,7 +38,7 @@ async function makeEnv(prefix) {
 
 async function runAst(args, env) {
   try {
-    const { stdout, stderr } = await execFileAsync(process.execPath, [AST_BIN, ...args], {
+    const { stdout, stderr } = await execFileAsync(NODE, [AST_BIN, ...args], {
       cwd: ROOT,
       encoding: 'utf8',
       env,

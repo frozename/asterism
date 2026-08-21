@@ -29,18 +29,19 @@ export function readTsconfigInclude(root = ROOT) {
   return tsconfig.include;
 }
 
-// 57 of 143 tracked files are type-checked by tsconfig.json today; the other
-// 86 are named below with the tsc error that keeps each one out -- either its
+// 57 of 144 tracked files are type-checked by tsconfig.json today; the other
+// 87 are named below with the tsc error that keeps each one out -- either its
 // own, or (for a file with no error of its own) the error of a file it
 // imports, transitively, that tsc still pulls into the program regardless of
 // this file being left out of tsconfig's "include": TypeScript checks every
 // file reachable by import from an included root, so a file can only be
-// truly excluded if nothing included ever imports it. Shrink the 86 by fixing
+// truly excluded if nothing included ever imports it. Shrink the 87 by fixing
 // the named file's shape, not by editing this ledger.
 export const TYPE_COVERAGE_LEDGER = Object.freeze([
   Object.freeze({ file: 'harness/gen-width.mjs', reason: 'does not type-check: harness/gen-width.mjs(43,39): error TS2339: Property \'ucdText\' does not exist on type \'{}\'.' }),
   Object.freeze({ file: 'harness/l3.mjs', reason: 'transitively imports src/io/procexec.js, which does not type-check: src/io/procexec.js(18,48): error TS2769: No overload matches this call.' }),
   Object.freeze({ file: 'harness/lint/index.mjs', reason: 'transitively imports harness/lint/source.mjs, which does not type-check: harness/lint/source.mjs(116,21): error TS2739: Type \'{ type: string; }\' is missing the following properties from type \'{ type: string; templateExpression: boolean; braceDepth: number; }\': templateExpression, braceDepth' }),
+  Object.freeze({ file: 'harness/lint/rules/cli-subprocess-uses-node.mjs', reason: 'transitively imports harness/lint/source.mjs, which does not type-check: harness/lint/source.mjs(116,21): error TS2739: Type \'{ type: string; }\' is missing the following properties from type \'{ type: string; templateExpression: boolean; braceDepth: number; }\': templateExpression, braceDepth' }),
   Object.freeze({ file: 'harness/lint/rules/no-console.mjs', reason: 'transitively imports harness/lint/source.mjs, which does not type-check: harness/lint/source.mjs(116,21): error TS2739: Type \'{ type: string; }\' is missing the following properties from type \'{ type: string; templateExpression: boolean; braceDepth: number; }\': templateExpression, braceDepth' }),
   Object.freeze({ file: 'harness/lint/rules/no-silent-catch.mjs', reason: 'transitively imports harness/lint/source.mjs, which does not type-check: harness/lint/source.mjs(116,21): error TS2739: Type \'{ type: string; }\' is missing the following properties from type \'{ type: string; templateExpression: boolean; braceDepth: number; }\': templateExpression, braceDepth' }),
   Object.freeze({ file: 'harness/lint/rules/verb-export-contract.mjs', reason: 'transitively imports harness/lint/source.mjs, which does not type-check: harness/lint/source.mjs(116,21): error TS2739: Type \'{ type: string; }\' is missing the following properties from type \'{ type: string; templateExpression: boolean; braceDepth: number; }\': templateExpression, braceDepth' }),

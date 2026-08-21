@@ -14,6 +14,8 @@ import { checkSchema } from '../src/core/schema-check.js';
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const AST_BIN = path.join(ROOT, 'bin', 'ast');
+const NODE = typeof globalThis.Bun === 'undefined' ? process.execPath : globalThis.Bun.which('node');
+assert.ok(NODE, 'the test runner could not locate node for CLI subprocesses');
 const FAKE_TMUX = path.join(ROOT, 'harness', 'fake-tmux', 'tmux');
 const HOSTILE = JSON.parse(await readFile(path.join(ROOT, 'vectors', 'render', 'hostile-names.json'), 'utf8'));
 const SESSION_SCHEMA = JSON.parse(await readFile(path.join(ROOT, 'schema', 'session-1.json'), 'utf8'));
@@ -44,7 +46,7 @@ async function runAst(args, { rows = [], env: overrides = {} } = {}) {
   };
 
   try {
-    const { stdout, stderr } = await execFileAsync(process.execPath, [AST_BIN, 'ls', ...args], {
+    const { stdout, stderr } = await execFileAsync(NODE, [AST_BIN, 'ls', ...args], {
       cwd: ROOT,
       env,
       encoding: 'utf8',
@@ -129,7 +131,7 @@ test('ast ls never invokes tmux while a PATH control proves the shim is executab
     ASTERISM_FAKE_TMUX_FIXTURES: fixturesDir,
   };
 
-  const { stdout } = await execFileAsync(process.execPath, [AST_BIN, 'ls'], { cwd: ROOT, env, encoding: 'utf8' });
+  const { stdout } = await execFileAsync(NODE, [AST_BIN, 'ls'], { cwd: ROOT, env, encoding: 'utf8' });
   assert.match(stdout, /^1 session/);
   await assert.rejects(() => readFile(logPath));
 
@@ -306,7 +308,7 @@ test('watch iteration cap renders once with normal exit and SIGINT stops an unca
     ASTERISM_TEST: '1',
     ASTERISM_FAKE_ROOT: fakeRoot,
   };
-  const child = spawn(process.execPath, [AST_BIN, 'ls', '--watch'], { cwd: ROOT, env });
+  const child = spawn(NODE, [AST_BIN, 'ls', '--watch'], { cwd: ROOT, env });
   let stdout = '';
   const code = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {

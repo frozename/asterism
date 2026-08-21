@@ -44,7 +44,7 @@ async function sandbox(prefix) {
 
 async function runAst(args, env) {
   try {
-    const { stdout, stderr } = await execFileAsync(process.execPath, [AST_BIN, ...args], {
+    const { stdout, stderr } = await execFileAsync(NODE, [AST_BIN, ...args], {
       cwd: ROOT,
       encoding: 'utf8',
       env,

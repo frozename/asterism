@@ -13,6 +13,8 @@ import { loadVerb } from '../src/cli/router.js';
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const AST_BIN = path.join(ROOT, 'bin', 'ast');
+const NODE = typeof globalThis.Bun === 'undefined' ? process.execPath : globalThis.Bun.which('node');
+assert.ok(NODE, 'the test runner could not locate node for CLI subprocesses');
 const TMP_HOME = mkdtempSync(path.join(os.tmpdir(), 'ast-cli-test-'));
 
 const VENDOR_LITERAL = /claude|codex|gemini|copilot|opencode|CLAUDE_|dangerously/i; // quarantine-exempt: this is the enforcement regex itself, not a vendor mention.
@@ -33,7 +35,7 @@ test('bare ast runs ls', async () => {
   const emptyPath = mkdtempSync(path.join(os.tmpdir(), 'ast-cli-bare-path-'));
   const state = mkdtempSync(path.join(os.tmpdir(), 'ast-cli-bare-state-'));
   const env = { PATH: emptyPath, HOME: home, XDG_STATE_HOME: state, TERM: 'dumb' };
-  const { stdout, stderr } = await execFileAsync(process.execPath, [AST_BIN], { cwd: ROOT, encoding: 'utf8', env });
+  const { stdout, stderr } = await execFileAsync(NODE, [AST_BIN], { cwd: ROOT, encoding: 'utf8', env });
   assert.equal(stdout.split('\n')[0], '0 sessions · 0 need you');
   assert.match(stderr, /note: .*: adapter-unavailable:/);
 });

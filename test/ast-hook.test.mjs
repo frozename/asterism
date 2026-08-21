@@ -10,6 +10,8 @@ import { STRONG_WITNESSES } from '../src/core/binding.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK_BIN = path.join(ROOT, 'bin', 'ast-hook');
+const NODE = typeof globalThis.Bun === 'undefined' ? process.execPath : globalThis.Bun.which('node');
+assert.ok(NODE, 'the test runner could not locate node for hook subprocesses');
 const registry = buildRegistry({ ASTERISM_FAKE_ROOT: path.join(ROOT, 'vectors', 'fake') });
 const vendorId = [...registry.keys()].find((id) => id !== 'fake');
 const vendor = registry.get(vendorId);
@@ -44,10 +46,8 @@ async function makeHarness() {
     await writeFile(file, shim);
     await chmod(file, 0o755);
   }
-  const nodeExecutable = typeof globalThis.Bun === 'undefined' ? process.execPath : globalThis.Bun.which('node');
-  assert.ok(nodeExecutable, 'the test runner could not locate node for the guest shebang');
   const nodeShim = path.join(shimDir, 'node');
-  await writeFile(nodeShim, `#!/bin/sh\n"${nodeExecutable}" "$@"\n`);
+  await writeFile(nodeShim, `#!/bin/sh\n"${NODE}" "$@"\n`);
   await chmod(nodeShim, 0o755);
 
   return {
@@ -64,7 +64,7 @@ async function makeHarness() {
 async function runGuest(harness, event, payload, options = {}) {
   const adapterId = options.adapterId ?? vendorId;
   const useNode = options.useNode ?? false;
-  const command = useNode ? process.execPath : HOOK_BIN;
+  const command = useNode ? NODE : HOOK_BIN;
   const args = useNode ? [HOOK_BIN, adapterId, event] : [adapterId, event];
   const env = {
     PATH: useNode ? harness.emptyBin : `${harness.shimDir}${path.delimiter}${path.dirname(process.execPath)}`,

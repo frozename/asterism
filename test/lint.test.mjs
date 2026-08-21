@@ -13,6 +13,7 @@ const EXPECTED_RULE_IDS = [
   'verb-refusals-are-returned',
   'verb-export-contract',
   'no-console',
+  'cli-subprocess-uses-node',
 ];
 
 function toRepoRelative(absPath) {
@@ -48,7 +49,7 @@ function assertViolationShape(violation, ruleId) {
   assert.ok(violation.message.length > 0);
 }
 
-test('registry exposes exactly four named rules with unique stable ids', () => {
+test('registry exposes exactly five named rules with unique stable ids', () => {
   assert.deepEqual(
     RULES.map((rule) => rule.id),
     EXPECTED_RULE_IDS,
@@ -318,6 +319,26 @@ test('control: no-console flags console methods under src and passes an injected
 
   const clean = rule.check([
     { file: 'src/synthetic.js', source: "sink.write('console.log is documentation');\n" },
+  ]);
+  assert.deepEqual(clean, []);
+});
+
+test('control: cli-subprocess-uses-node flags the current runtime and passes resolved node', () => {
+  const rule = ruleById('cli-subprocess-uses-node');
+  const offender = rule.check([
+    {
+      file: 'test/synthetic.test.mjs',
+      source: "spawn(process.execPath, [AST_BIN, 'ls']);\n",
+    },
+  ]);
+  assert.equal(offender.length, 1);
+  assertViolationShape(offender[0], rule.id);
+
+  const clean = rule.check([
+    {
+      file: 'test/synthetic.test.mjs',
+      source: "spawn(NODE, [AST_BIN, 'ls']);\n",
+    },
   ]);
   assert.deepEqual(clean, []);
 });
