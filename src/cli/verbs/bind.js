@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import os from 'node:os';
+import { emitNotes } from '../notes.js';
 import { collectSessions, resolveSessionRef } from '../pipeline.js';
 import { createUlidMinter } from '../../core/ulid.js';
 import { openStore } from '../../io/store.js';
@@ -57,11 +58,14 @@ export async function run(argv, ctx) {
       return refusal(`pane ${paneId} not found or dead on serverPid ${server.serverPid}`);
     }
   } else {
+    const serverNotes = [];
     const servers = await resolveServers({
       env: ctx.env,
       uid: process.getuid(),
       probe: ({ socketPath, env }) => serverInfo({ socketPath, env }),
+      notes: serverNotes,
     });
+    emitNotes(serverNotes);
     const panesByServer = new Map();
     for (const candidate of servers) {
       const listed = await listPanes({ socketPath: candidate.socketPath, env: ctx.env });

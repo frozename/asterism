@@ -41,7 +41,7 @@ async function harness({ panes = '%5|4243|$0|@1|0||\n', serverPid = 4242 } = {})
     ASTERISM_TEST: '1', ASTERISM_FAKE_ROOT: fakeRoot, ASTERISM_FAKE_TMUX_LOG: logPath,
     ASTERISM_FAKE_TMUX_FIXTURES: fixturesDir, TMUX_TMPDIR: tmp,
   };
-  return { tmp, socketFile, socketPath, logPath, serverPid, env };
+  return { tmp, shimDir, socketFile, socketPath, logPath, serverPid, env };
 }
 
 async function runAst(h, args, overrides = {}) {
@@ -108,6 +108,19 @@ test('outside tmux binds on one carrier; an absent pane refuses without writing'
   assert.equal(result.code, 1);
   assert.match(result.stderr, /pane %5 not found/);
   assert.equal((await bindings(absent)).records.length, 0);
+});
+
+test('resolveServers notes precede the pane-not-found refusal', async () => {
+  const h = await harness();
+  await chmod(path.join(h.shimDir, 'tmux'), 0o644);
+
+  const result = await runAst(h, ['bind', 'fake-0001', '%5']);
+
+  assert.equal(result.code, 1);
+  const note = 'note: tmux: socket-probe-failed:';
+  const refusal = 'pane %5 not found on any reachable server';
+  assert.ok(result.stderr.includes(note), result.stderr);
+  assert.ok(result.stderr.indexOf(note) < result.stderr.indexOf(refusal), result.stderr);
 });
 
 test('R5 refuses bind before state is written', async () => {

@@ -122,7 +122,10 @@ test('new no-server refusal resolves and creates no store', async () => {
       env,
       adapters: new Map([[fake.id, fake]]),
       root: ROOT,
-      resolveServers: async () => [],
+      resolveServers: async ({ notes }) => {
+        notes?.push(Object.freeze({ adapter: 'tmux', note: 'socket-probe-failed', detail: '/tmp/socket: denied' }));
+        return [];
+      },
       execute: async () => {
         throw new Error('no tmux command should run');
       },
@@ -130,7 +133,10 @@ test('new no-server refusal resolves and creates no store', async () => {
   );
 
   assert.equal(result.value, 1);
-  assert.match(result.text, /no tmux server is reachable/i);
+  const note = 'note: tmux: socket-probe-failed: /tmp/socket: denied';
+  const refusal = 'ast new: no tmux server is reachable';
+  assert.ok(result.text.includes(note), result.text);
+  assert.ok(result.text.indexOf(note) < result.text.indexOf(refusal), result.text);
   await assert.rejects(() => access(resolveStateDir(env)), { code: 'ENOENT' });
 });
 

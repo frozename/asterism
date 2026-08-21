@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
+import { emitNotes } from '../notes.js';
 import { createUlidMinter } from '../../core/ulid.js';
 import { createUuidMinter } from '../../core/uuid.js';
 import { openStore } from '../../io/store.js';
@@ -78,11 +79,14 @@ export async function run(argv, ctx) {
   if (selected.error) return refusal(selected.error);
 
   const findServers = ctx.resolveServers ?? resolveServers;
+  const serverNotes = [];
   const servers = await findServers({
     env: ctx.env,
     uid: process.getuid(),
     probe: ({ socketPath, env }) => serverInfo({ socketPath, env, execute: ctx.execute }),
+    notes: serverNotes,
   });
+  emitNotes(serverNotes);
   if (servers.length === 0) return refusal('ast new: no tmux server is reachable');
   const server = servers[0];
 
