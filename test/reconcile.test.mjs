@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import * as reconcileCore from '../src/core/reconcile.js';
 import {
   compareRecords,
   reconcile,
@@ -36,6 +37,75 @@ function seededMinter() {
     },
   });
 }
+
+// ---- field disposition ledger ----
+
+test('field disposition ledger is deeply frozen and gives every known field a non-empty reason', () => {
+  const { FIELD_DISPOSITION_LEDGER, KNOWN_FIELDS } = reconcileCore;
+  assert.ok(Array.isArray(FIELD_DISPOSITION_LEDGER), 'FIELD_DISPOSITION_LEDGER must exist as an array');
+  assert.ok(Object.isFrozen(FIELD_DISPOSITION_LEDGER));
+  assert.deepEqual(KNOWN_FIELDS, FIELD_DISPOSITION_LEDGER.map((entry) => entry.key));
+
+  for (const entry of FIELD_DISPOSITION_LEDGER) {
+    assert.ok(Object.isFrozen(entry), `${entry.key} ledger entry should be frozen`);
+    assert.equal(typeof entry.reason, 'string');
+    assert.ok(entry.reason.trim().length > 0, `${entry.key} should have a non-empty disposition reason`);
+  }
+
+  const peerFeatures = FIELD_DISPOSITION_LEDGER.find((entry) => entry.key === 'peerFeatures');
+  assert.deepEqual(peerFeatures, {
+    key: 'peerFeatures',
+    disposition: 'deliberately-not-projected',
+    reason:
+      'The peer\'s advertised capability list was ["notify_idle"] in every live registry record beside peerProtocol. Asterism does not consume registry self-reports today: src/core/caps.js is populated by probes. Project this field only after probe-backed capabilities explicitly reconcile the advertisement.',
+    deferredTo: 'probe-backed-peer-feature-reconciliation',
+  });
+});
+
+test('field disposition ledger and PROJECTED_FIELDS agree in both directions', () => {
+  const { fieldDispositionViolations, FIELD_DISPOSITION_LEDGER, PROJECTED_FIELDS } = reconcileCore;
+  assert.equal(typeof fieldDispositionViolations, 'function', 'fieldDispositionViolations must exist');
+  assert.deepEqual(fieldDispositionViolations(FIELD_DISPOSITION_LEDGER, PROJECTED_FIELDS), []);
+});
+
+test('field disposition ledger has no duplicate keys', () => {
+  const { fieldDispositionViolations, FIELD_DISPOSITION_LEDGER, PROJECTED_FIELDS } = reconcileCore;
+  assert.equal(typeof fieldDispositionViolations, 'function', 'fieldDispositionViolations must exist');
+  const violations = fieldDispositionViolations(
+    [...FIELD_DISPOSITION_LEDGER, FIELD_DISPOSITION_LEDGER[0]],
+    PROJECTED_FIELDS,
+  );
+  assert.ok(violations.some((violation) => violation.includes('duplicate')));
+});
+
+test('control: field ledger audit flags empty reasons and both projection mismatches while a valid ledger passes', () => {
+  const { fieldDispositionViolations } = reconcileCore;
+  assert.equal(typeof fieldDispositionViolations, 'function', 'fieldDispositionViolations must exist');
+
+  const validLedger = [
+    { key: 'alpha', disposition: 'projected', reason: 'alpha is part of the normalized record' },
+    { key: 'beta', disposition: 'deliberately-not-projected', reason: 'beta has no normalized destination' },
+  ];
+  assert.deepEqual(fieldDispositionViolations(validLedger, ['alpha']), []);
+
+  const emptyReason = fieldDispositionViolations(
+    [{ key: 'alpha', disposition: 'projected', reason: '' }],
+    ['alpha'],
+  );
+  assert.ok(emptyReason.some((violation) => violation.includes('reason')), 'empty reason was not flagged');
+
+  const missingProjectedField = fieldDispositionViolations(validLedger, []);
+  assert.ok(
+    missingProjectedField.some((violation) => violation.includes('PROJECTED_FIELDS omits "alpha"')),
+    'ledger-to-PROJECTED_FIELDS mismatch was not flagged',
+  );
+
+  const wronglyProjectedField = fieldDispositionViolations(validLedger, ['alpha', 'beta']);
+  assert.ok(
+    wronglyProjectedField.some((violation) => violation.includes('PROJECTED_FIELDS includes "beta"')),
+    'PROJECTED_FIELDS-to-ledger mismatch was not flagged',
+  );
+});
 
 // ---- RED 6 (synthetic): fold determinism ----
 

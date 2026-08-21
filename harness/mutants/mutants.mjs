@@ -187,6 +187,14 @@ export const MUTANTS = Object.freeze([
     why: 'liveness that never consults procStart cannot distinguish the live session from a pid recycled by an unrelated process',
   }),
   Object.freeze({
+    id: 'MUT-FIELD-LEDGER-DROPS-PROJECTED-OMISSION',
+    file: 'src/core/reconcile.js',
+    find: `    if (entry.disposition === FIELD_DISPOSITIONS.PROJECTED && !projected.has(entry.key)) {`,
+    replace: `    if (false) {`,
+    claimedBy: Object.freeze(['test/reconcile.test.mjs']),
+    why: 'a ledger audit that stops detecting a projected entry omitted from PROJECTED_FIELDS lets the two projection declarations drift silently',
+  }),
+  Object.freeze({
     id: 'MUT-STATUS-COLLAPSE',
     file: 'src/core/reconcile.js',
     find: `if (status === null) return 'unknown';`,

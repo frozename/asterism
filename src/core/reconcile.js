@@ -3,27 +3,158 @@ import { parseCtime } from './liveness.js';
 
 export const OBSERVATION_SOURCES = Object.freeze(['contract', 'registry-file', 'bindings-spool', 'process-table']);
 
-export const KNOWN_FIELDS = Object.freeze([
-  'cwd',
-  'kind',
-  'name',
-  'pid',
-  'sessionId',
-  'startedAt',
-  'status',
-  'waitingFor',
-  'bridgeSessionId',
-  'entrypoint',
-  'messagingSocketPath',
-  'nameSince',
-  'nameSource',
-  'peerProtocol',
-  'procStart',
-  'statusUpdatedAt',
-  'tmux',
-  'updatedAt',
-  'version',
+export const FIELD_DISPOSITIONS = Object.freeze({
+  PROJECTED: 'projected',
+  NOT_PROJECTED: 'deliberately-not-projected',
+});
+
+export const PROJECTED_FIELDS = Object.freeze(['sessionId', 'cwd', 'pid', 'status', 'waitingFor']);
+
+export const FIELD_DISPOSITION_LEDGER = Object.freeze([
+  Object.freeze({
+    key: 'cwd',
+    disposition: FIELD_DISPOSITIONS.PROJECTED,
+    reason: 'The working directory is normalized into agent.cwd for display and repository context.',
+  }),
+  Object.freeze({
+    key: 'kind',
+    disposition: FIELD_DISPOSITIONS.NOT_PROJECTED,
+    reason: 'The vendor process kind has no source-neutral destination in the session record.',
+  }),
+  Object.freeze({
+    key: 'name',
+    disposition: FIELD_DISPOSITIONS.NOT_PROJECTED,
+    reason: 'The generic projector skips name because buildRecord maps it separately to agent.name with agent.name provenance.',
+  }),
+  Object.freeze({
+    key: 'pid',
+    disposition: FIELD_DISPOSITIONS.PROJECTED,
+    reason: 'The process id is normalized into agent.pid for liveness correlation.',
+  }),
+  Object.freeze({
+    key: 'sessionId',
+    disposition: FIELD_DISPOSITIONS.PROJECTED,
+    reason: 'The vendor session id groups observations and is normalized into agent.sessionId.',
+  }),
+  Object.freeze({
+    key: 'startedAt',
+    disposition: FIELD_DISPOSITIONS.NOT_PROJECTED,
+    reason: 'Liveness uses the independently parsed procStart value instead of the vendor start timestamp.',
+  }),
+  Object.freeze({
+    key: 'status',
+    disposition: FIELD_DISPOSITIONS.PROJECTED,
+    reason: 'The vendor activity state is normalized into observed.status.',
+  }),
+  Object.freeze({
+    key: 'waitingFor',
+    disposition: FIELD_DISPOSITIONS.PROJECTED,
+    reason: 'The waiting detail is normalized into observed.waitingFor for attention routing.',
+  }),
+  Object.freeze({
+    key: 'bridgeSessionId',
+    disposition: FIELD_DISPOSITIONS.NOT_PROJECTED,
+    reason: 'The bridge-specific identity has no source-neutral destination in the session record.',
+  }),
+  Object.freeze({
+    key: 'entrypoint',
+    disposition: FIELD_DISPOSITIONS.NOT_PROJECTED,
+    reason: 'The vendor launch entrypoint is diagnostic metadata with no normalized record field.',
+  }),
+  Object.freeze({
+    key: 'messagingSocketPath',
+    disposition: FIELD_DISPOSITIONS.NOT_PROJECTED,
+    reason: 'The vendor transport path is not part of the normalized session schema or its routing contract.',
+  }),
+  Object.freeze({
+    key: 'nameSince',
+    disposition: FIELD_DISPOSITIONS.NOT_PROJECTED,
+    reason: 'Vendor name timing is not used; the winning name carries observation provenance instead.',
+  }),
+  Object.freeze({
+    key: 'nameSource',
+    disposition: FIELD_DISPOSITIONS.NOT_PROJECTED,
+    reason: 'Vendor name provenance is not copied; the winning observation supplies source-neutral provenance.',
+  }),
+  Object.freeze({
+    key: 'peerProtocol',
+    disposition: FIELD_DISPOSITIONS.NOT_PROJECTED,
+    reason: 'The adapter uses peerProtocol to gate registry enrichment before reconciliation, so it is not record data.',
+  }),
+  Object.freeze({
+    key: 'peerFeatures',
+    disposition: FIELD_DISPOSITIONS.NOT_PROJECTED,
+    reason:
+      'The peer\'s advertised capability list was ["notify_idle"] in every live registry record beside peerProtocol. Asterism does not consume registry self-reports today: src/core/caps.js is populated by probes. Project this field only after probe-backed capabilities explicitly reconcile the advertisement.',
+    deferredTo: 'probe-backed-peer-feature-reconciliation',
+  }),
+  Object.freeze({
+    key: 'procStart',
+    disposition: FIELD_DISPOSITIONS.NOT_PROJECTED,
+    reason: 'The raw process start value is parsed separately into agent.procStartEpoch and liveness provenance.',
+  }),
+  Object.freeze({
+    key: 'statusUpdatedAt',
+    disposition: FIELD_DISPOSITIONS.NOT_PROJECTED,
+    reason: 'The vendor status timestamp is reserved as staleness evidence and has no normalized record field.',
+  }),
+  Object.freeze({
+    key: 'tmux',
+    disposition: FIELD_DISPOSITIONS.NOT_PROJECTED,
+    reason: 'The vendor tmux witness is adapter metadata; normalized bindings are established through the binding path.',
+  }),
+  Object.freeze({
+    key: 'updatedAt',
+    disposition: FIELD_DISPOSITIONS.NOT_PROJECTED,
+    reason: 'Observation envelopes provide source-neutral freshness, so the vendor update timestamp is not copied.',
+  }),
+  Object.freeze({
+    key: 'version',
+    disposition: FIELD_DISPOSITIONS.NOT_PROJECTED,
+    reason: 'The vendor version is feature-gate evidence rather than a normalized session field.',
+  }),
 ]);
+
+export const KNOWN_FIELDS = Object.freeze(FIELD_DISPOSITION_LEDGER.map((entry) => entry.key));
+
+export function fieldDispositionViolations(ledger, projectedFields) {
+  const violations = [];
+  const entriesByKey = new Map();
+  const projected = new Set(projectedFields);
+
+  for (const entry of ledger) {
+    if (typeof entry.key !== 'string' || entry.key.length === 0) {
+      violations.push('field disposition ledger entry has an empty key');
+      continue;
+    }
+    if (entriesByKey.has(entry.key)) violations.push(`field disposition ledger has duplicate key "${entry.key}"`);
+    else entriesByKey.set(entry.key, entry);
+
+    if (!Object.values(FIELD_DISPOSITIONS).includes(entry.disposition)) {
+      violations.push(`field disposition ledger entry "${entry.key}" has invalid disposition "${entry.disposition}"`);
+    }
+    if (typeof entry.reason !== 'string' || entry.reason.trim().length === 0) {
+      violations.push(`field disposition ledger entry "${entry.key}" is missing a non-empty reason`);
+    }
+    if (entry.disposition === FIELD_DISPOSITIONS.PROJECTED && !projected.has(entry.key)) {
+      violations.push(`field disposition ledger marks "${entry.key}" projected but PROJECTED_FIELDS omits "${entry.key}"`);
+    }
+  }
+
+  for (const key of projectedFields) {
+    const entry = entriesByKey.get(key);
+    if (!entry || entry.disposition !== FIELD_DISPOSITIONS.PROJECTED) {
+      violations.push(`PROJECTED_FIELDS includes "${key}" but the ledger does not mark it projected`);
+    }
+  }
+
+  return Object.freeze(violations);
+}
+
+const FIELD_DISPOSITION_VIOLATIONS = fieldDispositionViolations(FIELD_DISPOSITION_LEDGER, PROJECTED_FIELDS);
+if (FIELD_DISPOSITION_VIOLATIONS.length > 0) {
+  throw new Error(`reconcile: invalid field disposition ledger: ${FIELD_DISPOSITION_VIOLATIONS.join('; ')}`);
+}
 
 export const FEATURE_REQUIRES = Object.freeze({
   liveness: Object.freeze(['procStart']),
@@ -33,8 +164,6 @@ export const FEATURE_REQUIRES = Object.freeze({
 });
 
 export const KNOWN_STATUSES = Object.freeze(['busy', 'waiting', 'idle', 'completed', 'dead']);
-
-const PROJECTED_FIELDS = Object.freeze(['sessionId', 'cwd', 'pid', 'status', 'waitingFor']);
 
 const SOURCE_RANK = Object.freeze({ contract: 3, 'registry-file': 2, 'bindings-spool': 1, 'process-table': 0 });
 
