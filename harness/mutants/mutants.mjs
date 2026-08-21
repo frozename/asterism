@@ -1017,6 +1017,54 @@ export const MUTANTS = Object.freeze([
     why: 'a reconciliation pass must not erase lifecycle fields owned by park and unpark',
   }),
 
+  // --- Lint engine mutants
+  Object.freeze({
+    id: 'MUT-LINT-NO-SILENT-CATCH-ALWAYS-ACCOUNTED',
+    file: 'harness/lint/rules/no-silent-catch.mjs',
+    find: `function isAccountedFor(sourceBody, maskedBody) {
+  if (commentsMasked(sourceBody) !== sourceBody) return true;
+  if (/\\b(?:addCanary|append\\w*Error|notes?\\.push)\\s*\\(/.test(maskedBody)) return true;
+
+  const statement = maskedBody.trim();
+  return /^(?:return\\b[^\\r\\n;]*;?|throw\\b[^\\r\\n;]*;?|continue\\s*;?|break\\s*;?)$/.test(statement);
+}`,
+    replace: `function isAccountedFor() {
+  return true;
+}`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'treating every bare catch as accounted for lets silent error swallowing pass unnoticed',
+  }),
+  Object.freeze({
+    id: 'MUT-LINT-REFUSAL-THROW-DETECTION-EMPTY',
+    file: 'harness/lint/rules/verb-refusals-are-returned.mjs',
+    find: `    for (const match of runBody.matchAll(THROW_REFUSAL)) {
+`,
+    replace: `    for (const match of []) {
+`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'skipping direct thrown-refusal matches lets run() reject instead of returning a shaped refusal',
+  }),
+  Object.freeze({
+    id: 'MUT-LINT-DROPS-MUTATING-EXPORT-CHECK',
+    file: 'harness/lint/rules/verb-export-contract.mjs',
+    find: `    if (!MUTATING_EXPORT.test(masked)) {
+`,
+    replace: `    if (false) {
+`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'dropping the mutating export check lets a verb omit its router safety contract',
+  }),
+  Object.freeze({
+    id: 'MUT-LINT-CONSOLE-DETECTION-EMPTY',
+    file: 'harness/lint/rules/no-console.mjs',
+    find: `    for (const match of masked.matchAll(CONSOLE_METHOD)) {
+`,
+    replace: `    for (const match of []) {
+`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'skipping console-method matches lets product source write through the forbidden console API',
+  }),
+
   // --- Architecture documentation mutant
   Object.freeze({
     id: 'MUT-ARCHITECTURE-PATH-CHECK',
