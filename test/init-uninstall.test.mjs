@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { appendFile, chmod, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
+import { appendFile, chmod, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -81,29 +81,72 @@ function bytesSha(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-async function treeSha(root) {
-  const hash = createHash('sha256');
+async function treeInventory(root) {
+  const inventory = [];
   async function walk(current, relative) {
     let entries;
     try {
       entries = await readdir(current, { withFileTypes: true });
     } catch (error) {
       if (error.code === 'ENOENT') {
-        hash.update(`A ${relative}\n`);
+        inventory.push({ kind: 'A', path: relative });
         return;
       }
       throw error;
     }
-    hash.update(`D ${relative}\n`);
+    inventory.push({ kind: 'D', path: relative });
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       const childRelative = relative === '' ? entry.name : `${relative}/${entry.name}`;
       const child = path.join(current, entry.name);
       if (entry.isDirectory()) await walk(child, childRelative);
-      else if (entry.isFile()) hash.update(`F ${childRelative}\0`).update(await readFile(child));
+      else if (entry.isFile()) inventory.push({ kind: 'F', path: childRelative, bytes: await readFile(child) });
     }
   }
   await walk(root, '');
+  return inventory;
+}
+
+function treeSha(inventory) {
+  const hash = createHash('sha256');
+  for (const entry of inventory) {
+    if (entry.kind === 'F') hash.update(`F ${entry.path}\0`).update(entry.bytes);
+    else hash.update(`${entry.kind} ${entry.path}\n`);
+  }
   return hash.digest('hex');
+}
+
+function treeChanges(before, after) {
+  const beforeByPath = new Map(before.map((entry) => [entry.path, entry]));
+  const afterByPath = new Map(after.map((entry) => [entry.path, entry]));
+  return [...new Set([...beforeByPath.keys(), ...afterByPath.keys()])]
+    .sort((a, b) => a.localeCompare(b))
+    .flatMap((relativePath) => {
+      const beforeEntry = beforeByPath.get(relativePath);
+      const afterEntry = afterByPath.get(relativePath);
+      const displayPath = relativePath === '' ? '.' : relativePath;
+      if (beforeEntry === undefined) return [`added: ${displayPath}`];
+      if (afterEntry === undefined) return [`removed: ${displayPath}`];
+      if (beforeEntry.kind !== afterEntry.kind) return [`modified: ${displayPath}`];
+      if (beforeEntry.kind === 'F' && !beforeEntry.bytes.equals(afterEntry.bytes)) {
+        return [`modified: ${displayPath}`];
+      }
+      return [];
+    });
+}
+
+async function assertTreeUnchanged(root, before, message) {
+  const after = await treeInventory(root);
+  const changes = treeChanges(before, after);
+  const details = changes.length === 0 ? 'tree digest changed without an inventory difference' : changes.join('\n');
+  assert.equal(treeSha(after), treeSha(before), message === undefined ? details : `${message}\n${details}`);
+  assert.deepEqual(changes, [], message);
+}
+
+async function assertTreeChanged(root, before, message) {
+  const after = await treeInventory(root);
+  const changes = treeChanges(before, after);
+  assert.notEqual(treeSha(after), treeSha(before), message);
+  assert.notDeepEqual(changes, [], message);
 }
 
 async function assertAbsent(filePath) {
@@ -151,6 +194,26 @@ async function refreshFixture({ manifest = true } = {}) {
   };
 }
 
+test('tree purity diagnostics report added, removed, and modified paths with an unchanged control', async () => {
+  const box = await sandbox('ast-tree-inventory-');
+  const removedPath = path.join(box.base, 'removed.txt');
+  const modifiedPath = path.join(box.base, 'modified.txt');
+  await writeFile(removedPath, 'remove me\n');
+  await writeFile(modifiedPath, 'before\n');
+  const before = await treeInventory(box.base);
+
+  assert.deepEqual(treeChanges(before, await treeInventory(box.base)), []);
+  await writeFile(path.join(box.base, 'added.txt'), 'added\n');
+  await unlink(removedPath);
+  await writeFile(modifiedPath, 'after\n');
+
+  assert.deepEqual(treeChanges(before, await treeInventory(box.base)), [
+    'added: added.txt',
+    'modified: modified.txt',
+    'removed: removed.txt',
+  ]);
+});
+
 test('init and uninstall leave the profile byte-identical, with a live comparator control', async () => {
   const box = await sandbox('ast-zero-profile-');
   const profilePath = adapter.profileFile(box.home);
@@ -174,22 +237,22 @@ test('init and uninstall leave the profile byte-identical, with a live comparato
 
 test('init dry-run prints rollback-bearing changes and changes no tree', async () => {
   const box = await sandbox('ast-init-dry-');
-  const before = await treeSha(box.base);
+  const before = await treeInventory(box.base);
   const dry = await runAst(['init', '--dry-run'], box.env);
   assert.equal(dry.code, 0, dry.stderr);
   const changes = dry.stdout.split('\n').filter((line) => line.startsWith('init: would '));
   assert.ok(changes.length >= 1, 'dry-run printed no pending change');
   assert.ok(changes.every((line) => line.includes('rollback:')), 'a dry-run change omitted its rollback');
-  assert.equal(await treeSha(box.base), before);
+  await assertTreeUnchanged(box.base, before);
 
   assert.equal((await runAst(['init'], box.env)).code, 0);
-  assert.notEqual(await treeSha(box.base), before);
+  await assertTreeChanged(box.base, before);
 
-  const installed = await treeSha(box.base);
+  const installed = await treeInventory(box.base);
   const uninstallDry = await runAst(['uninstall', '--dry-run'], box.env);
   assert.equal(uninstallDry.code, 0, uninstallDry.stderr);
   assert.match(uninstallDry.stdout, /would-remove/);
-  assert.equal(await treeSha(box.base), installed);
+  await assertTreeUnchanged(box.base, installed);
 });
 
 test('init rollback advice distinguishes new, replaced, and unchanged config and identity files', async () => {
@@ -239,12 +302,12 @@ test('init rollback advice distinguishes new, replaced, and unchanged config and
 test('init is byte-idempotent and preserves identity bytes', async () => {
   const box = await sandbox('ast-init-idempotent-');
   assert.equal((await runAst(['init'], box.env)).code, 0);
-  const firstTree = await treeSha(box.base);
+  const firstTree = await treeInventory(box.base);
   const identityPath = path.join(box.stateDir, 'identity.json');
   const firstIdentity = await readFile(identityPath);
 
   assert.equal((await runAst(['init'], box.env)).code, 0);
-  assert.equal(await treeSha(box.base), firstTree);
+  await assertTreeUnchanged(box.base, firstTree);
   assert.deepEqual(await readFile(identityPath), firstIdentity);
 });
 
@@ -262,9 +325,9 @@ test('uninstall removes only the cockpit key block and succeeds byte-idempotentl
 
   assert.equal((await runAst(['uninstall'], box.env)).code, 0);
   assert.equal(bytesSha(await readFile(tmuxPath)), pristine);
-  const afterFirst = await treeSha(box.base);
+  const afterFirst = await treeInventory(box.base);
   assert.equal((await runAst(['uninstall'], box.env)).code, 0);
-  assert.equal(await treeSha(box.base), afterFirst);
+  await assertTreeUnchanged(box.base, afterFirst);
 });
 
 test('completion is owned, fpath is printed, and shell startup bytes are untouched', async () => {
@@ -469,14 +532,14 @@ test('init --refresh re-attests changed source and leaves every other managed fi
 
 test('init --refresh without a manifest resolves to refusal and writes nothing', async () => {
   const box = await refreshFixture({ manifest: false });
-  const before = await treeSha(box.base);
+  const before = await treeInventory(box.base);
   let refused;
   await assert.doesNotReject(async () => {
     refused = await runInitDirect(['--refresh'], box.ctx);
   });
   assert.equal(refused.code, 1);
   assert.equal(refused.stderr, 'init refresh: identity manifest is absent; run ast init\n');
-  assert.equal(await treeSha(box.base), before);
+  await assertTreeUnchanged(box.base, before);
 });
 
 test('init --refresh refuses malformed manifests as values and writes nothing', async () => {
@@ -487,14 +550,14 @@ test('init --refresh refuses malformed manifests as values and writes nothing', 
   ];
   for (const [label, bytes] of malformed) {
     await writeFile(box.identityPath, bytes);
-    const before = await treeSha(box.base);
+    const before = await treeInventory(box.base);
     let refused;
     await assert.doesNotReject(async () => {
       refused = await runInitDirect(['--refresh'], box.ctx);
     }, label);
     assert.equal(refused.code, 1, label);
     assert.match(refused.stderr, /run ast init/, label);
-    assert.equal(await treeSha(box.base), before, label);
+    await assertTreeUnchanged(box.base, before, label);
   }
 });
 
@@ -517,11 +580,11 @@ test('init --refresh resolves store schema and permission guards before writing 
 test('init --refresh --dry-run names changed source and writes nothing', async () => {
   const box = await refreshFixture();
   await writeFile(box.sourcePath, 'export const example = 3;\n');
-  const before = await treeSha(box.base);
+  const before = await treeInventory(box.base);
   const dry = await runInitDirect(['--refresh', '--dry-run'], box.ctx);
   assert.equal(dry.code, 0, dry.stderr);
   assert.equal(dry.stdout, 'init refresh: would re-attest src/example.js (sha256 moved)\n');
-  assert.equal(await treeSha(box.base), before);
+  await assertTreeUnchanged(box.base, before);
 
   const rejected = await runInitDirect(['--refresh', '--dry-run', '--other'], box.ctx);
   assert.equal(rejected.code, 2);
