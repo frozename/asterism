@@ -48,6 +48,8 @@ export async function runHook({ argv, stdin, env, adapters, platform, now, exec,
       await store.appendHookError(
         `${new Date(now()).toISOString()} ast-hook ${adapterId ?? '?'}/${event ?? '?'}: ${error.message}`,
       );
-    } catch {}
+    } catch {
+      // The guest hook has no remaining channel for reporting a failure in its error logger.
+    }
   }
 }

@@ -425,6 +425,7 @@ export async function sweepRetention(stateDir, { now, config = {} } = {}) {
       try {
         stats = await stat(filePath);
       } catch {
+        // A vanished entry still consumes this bounded scan slot before moving to the next candidate.
         remaining -= 1;
         continue;
       }
