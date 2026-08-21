@@ -2,11 +2,13 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_COMMITTED_FIXTURE = path.join('test', 'fixtures', 'secret-digests.sha256');
 const DEFAULT_OVERLAY = path.join('private', 'secret-digests.sha256');
+const REPOSITORY_ROOT = fileURLToPath(new URL('../', import.meta.url));
 const HEX_DIGEST = /^[0-9a-f]{64}$/;
 const EDGE_PUNCTUATION = /^[`'"‘’“”()[\]{}<>,.;:!?*|#]+|[`'"‘’“”()[\]{}<>,.;:!?*|#]+$/g;
 
@@ -123,18 +125,12 @@ export async function listFiles(cwd) {
     .filter((entry) => entry.length > 0);
 }
 
-export async function listUnpushedCommits(cwd) {
-  try {
-    await execGit(cwd, ['rev-parse', '--verify', 'HEAD']);
-  } catch {
-    return [];
+export async function listUnpushedCommits(cwd, range) {
+  if (typeof range !== 'string' || range.length === 0) {
+    throw new TypeError('listUnpushedCommits: range is required');
   }
 
-  try {
-    return parseLogOutput(await execGit(cwd, ['log', '@{upstream}..HEAD', '--format=%h%x00%B%x00%x1e']));
-  } catch {
-    return parseLogOutput(await execGit(cwd, ['log', '--all', '--format=%h%x00%B%x00%x1e']));
-  }
+  return parseLogOutput(await execGit(cwd, ['log', range, '--format=%h%x00%B%x00%x1e']));
 }
 
 function resolveOverlayPath(root, explicitPath) {
@@ -179,4 +175,37 @@ export function parseLogOutput(output) {
         message: record.slice(separator + 1).replace(/\0$/, ''),
       };
     });
+}
+
+function main(argv) {
+  if (argv.length !== 1) {
+    process.stderr.write('secret-scan: expected exactly one message file path\n');
+    return 2;
+  }
+
+  const messagePath = argv[0];
+  let message;
+  try {
+    message = readFileSync(messagePath, 'utf8');
+  } catch (error) {
+    process.stderr.write(`secret-scan: could not read ${messagePath}: ${error?.message ?? error}\n`);
+    return 2;
+  }
+
+  const { digests } = loadDigests({ root: REPOSITORY_ROOT });
+  const findings = scanText(message, digests);
+  for (const finding of findings) {
+    process.stderr.write(`secret-scan: ${messagePath}:${finding.line} ${finding.digest}\n`);
+  }
+  return findings.length === 0 ? 0 : 1;
+}
+
+const isMain = process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  try {
+    process.exitCode = main(process.argv.slice(2));
+  } catch (error) {
+    process.stderr.write(`secret-scan: ${error?.message ?? error}\n`);
+    process.exitCode = 2;
+  }
 }

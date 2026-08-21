@@ -11,4 +11,5 @@ if [ -z "$comment_char" ] || [ "$comment_char" = auto ]; then
   comment_char='#'
 fi
 
+node "$hook_dir/../harness/secret-scan.mjs" "$1" || exit $?
 exec node "$hook_dir/../harness/commitlint.mjs" --comment-char "$comment_char" "$1"

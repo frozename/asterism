@@ -1205,6 +1205,14 @@ export const MUTANTS = Object.freeze([
     why: 'the hook must fail closed with a clear diagnostic when node is unavailable',
   }),
   Object.freeze({
+    id: 'MUT-COMMIT-HOOK-SCANS-EMPTY-MESSAGE',
+    file: '.githooks/commit-msg',
+    find: `node "$hook_dir/../harness/secret-scan.mjs" "$1" || exit $?\n`,
+    replace: `node "$hook_dir/../harness/secret-scan.mjs" /dev/null || exit $?\n`,
+    claimedBy: Object.freeze(['test/commit-format.test.mjs']),
+    why: 'the hook must scan the message file git supplied rather than empty content',
+  }),
+  Object.freeze({
     id: 'MUT-PROCEXEC-DROPS-STDIN',
     file: 'src/io/procexec.js',
     find: `      const stdio = input === undefined ? ['ignore', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'];\n      child = spawn(command, args, { cwd, env, stdio });\n      if (input !== undefined) child.stdin.end(input);\n`,

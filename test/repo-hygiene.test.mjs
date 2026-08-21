@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+
+import { procexec } from '../src/io/procexec.js';
 
 import {
   digestOf,
@@ -112,18 +115,26 @@ test('scan over tracked and untracked files', async () => {
   ]);
 });
 
-test('scan over unpushed commit messages', async () => {
-  const { digests } = loadDigests({ root: ROOT });
-  const commits = await listUnpushedCommits(ROOT);
-  const findings = [];
+test('scan over a caller-selected synthetic commit history', async () => {
+  const { repo, env } = await initHistoryRepo('asterism-secret-history-');
+  const syntheticValue = 'synthetic commit history canary';
+  const digest = digestOf(syntheticValue);
+  const digests = parseFixture(`${digest}\n`, { source: 'synthetic.fixture' });
 
-  for (const commit of commits) {
-    for (const finding of scanText(commit.message, digests)) {
-      findings.push(`${commit.sha}:${finding.line} ${finding.digest}`);
-    }
-  }
+  await commitMessage(repo, env, 'test(test): keep synthetic history clean');
+  await commitMessage(repo, env, `test(test): exercise synthetic history\n\n${syntheticValue}`);
 
-  assert.deepEqual(findings, [], `commits ${commits.length}; findings:\n${findings.join('\n')}`);
+  await assert.rejects(() => listUnpushedCommits(repo), /range is required/);
+  await assert.rejects(() => listUnpushedCommits(repo, 'missing-secret-scan-range'), /missing-secret-scan-range/);
+
+  const commits = await listUnpushedCommits(repo, 'HEAD');
+  const clean = commits.find((commit) => commit.message.includes('keep synthetic history clean'));
+  const mustHit = commits.find((commit) => commit.message.includes('exercise synthetic history'));
+
+  assert.ok(clean, 'clean synthetic commit is missing');
+  assert.ok(mustHit, 'must-hit synthetic commit is missing');
+  assert.deepEqual(scanText(clean.message, digests), []);
+  assert.deepEqual(scanText(mustHit.message, digests), [{ line: 3, digest }]);
 });
 
 test('log output records are trimmed before sha splitting', () => {
@@ -145,4 +156,35 @@ async function readUtf8TextUnderLimit(file) {
   if (Buffer.from(text, 'utf8').compare(bytes) !== 0) return null;
 
   return text;
+}
+
+async function initHistoryRepo(prefix) {
+  const repo = await mkdtemp(path.join(os.tmpdir(), prefix));
+  const env = { PATH: process.env.PATH ?? '', HOME: repo };
+  const init = await procexec(['git', 'init', '--quiet', '--initial-branch', 'main'], { cwd: repo, env });
+  assert.equal(init.code, 0, `git init failed: ${init.stderr.toString('utf8')}`);
+  return { repo, env };
+}
+
+async function commitMessage(repo, env, message) {
+  const commit = await procexec(
+    [
+      'git',
+      '-c',
+      'user.name=Asterism Test',
+      '-c',
+      'user.email=asterism@example.invalid',
+      '-c',
+      'commit.gpgsign=false',
+      '-c',
+      'core.hooksPath=/dev/null',
+      'commit',
+      '--allow-empty',
+      '--quiet',
+      '--message',
+      message,
+    ],
+    { cwd: repo, env },
+  );
+  assert.equal(commit.code, 0, `git commit failed: ${commit.stderr.toString('utf8')}`);
 }

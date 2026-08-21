@@ -9,6 +9,7 @@ import {
   SCOPE_VOCABULARY,
   validateCommitMessage,
 } from '../harness/commitlint.mjs';
+import { digestOf } from '../harness/secret-scan.mjs';
 import { procexec } from '../src/io/procexec.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -167,10 +168,13 @@ test('CLI accepts stdin and rejects it with specific violations plus one example
   assert.match(rejected.stderr.toString('utf8'), /example: feat\(cli\): add ast new/);
 });
 
-test('commit-msg hook validates a file and is executable', async () => {
+test('commit-msg hook validates and secret-scans a file and is executable', async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), 'asterism-commit-msg-'));
   const messagePath = path.join(temp, 'COMMIT_EDITMSG');
+  const overlayPath = path.join(temp, 'secret-digests.sha256');
   const hookPath = path.join(ROOT, '.githooks', 'commit-msg');
+  const syntheticValue = 'synthetic hook message canary';
+  const digest = digestOf(syntheticValue);
 
   await writeFile(messagePath, 'feat(cli): add ast new\n');
   const accepted = await procexec(['/bin/sh', hookPath, messagePath], { cwd: ROOT, env: EXEC_ENV });
@@ -178,11 +182,21 @@ test('commit-msg hook validates a file and is executable', async () => {
   await writeFile(messagePath, 'feat: Add ast new.\n');
   const rejected = await procexec(['/bin/sh', hookPath, messagePath], { cwd: ROOT, env: EXEC_ENV });
 
+  await writeFile(overlayPath, `${digest}\n`);
+  await writeFile(messagePath, `test(test): exercise hook scan\n\n${syntheticValue}\n`);
+  const blocked = await procexec(['/bin/sh', hookPath, messagePath], {
+    cwd: ROOT,
+    env: { ...EXEC_ENV, ASTERISM_SECRET_DIGESTS: overlayPath },
+  });
+
   assert.notEqual((await stat(hookPath)).mode & 0o111, 0, 'commit-msg hook should be executable');
   assert.equal(accepted.code, 0);
   assert.equal(rejected.code, 1);
   assert.match(rejected.stderr.toString('utf8'), /scope is required/);
   assert.match(rejected.stderr.toString('utf8'), /example: feat\(cli\): add ast new/);
+  assert.equal(blocked.code, 1);
+  assert.ok(blocked.stderr.toString('utf8').includes(`${messagePath}:3 ${digest}`));
+  assert.equal(blocked.stderr.toString('utf8').includes(syntheticValue), false);
 });
 
 test('commit-msg hook fails closed with a clear error when node is missing', async () => {
