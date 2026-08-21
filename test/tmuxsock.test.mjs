@@ -127,3 +127,101 @@ test('probe rejection is skipped; every rung dead yields the distinct {ok:false,
   assert.equal(oneLive.ok, true);
   assert.ok(oneLive.socketPath.endsWith('b'));
 });
+
+test('resolveServer records non-ENOENT probe failures and keeps a must-hit ENOENT candidate silent', async () => {
+  const deniedNotes = [];
+  let deniedProbes = 0;
+  const denied = await resolveServer({
+    env: { TMUX: '/s/denied,1,0' },
+    uid: 501,
+    exists: () => true,
+    listDir: () => [],
+    probe: async () => {
+      deniedProbes += 1;
+      throw new Error('permission denied');
+    },
+    notes: deniedNotes,
+  });
+  assert.equal(deniedProbes, 1);
+  assert.deepEqual(denied, { ok: false, reason: 'no-server' });
+  assert.deepEqual(deniedNotes, [
+    { adapter: 'tmux', note: 'socket-probe-failed', detail: '/s/denied: permission denied' },
+  ]);
+
+  const missingNotes = [];
+  let missingProbes = 0;
+  const missing = new Error('candidate disappeared');
+  missing.code = 'ENOENT';
+  const absent = await resolveServer({
+    env: { TMUX: '/s/missing,1,0' },
+    uid: 501,
+    exists: () => true,
+    listDir: () => [],
+    probe: async () => {
+      missingProbes += 1;
+      throw missing;
+    },
+    notes: missingNotes,
+  });
+  assert.equal(missingProbes, 1);
+  assert.deepEqual(absent, { ok: false, reason: 'no-server' });
+  assert.deepEqual(missingNotes, []);
+});
+
+test('resolveServer records both non-ENOENT realpath failures and keeps both ENOENT paths silent', async () => {
+  const cases = [
+    {
+      label: 'candidate non-ENOENT',
+      failedPath: '/s/candidate',
+      error: new Error('permission denied'),
+      expectedCalls: ['/s/candidate'],
+      expectedNotes: [
+        { adapter: 'tmux', note: 'socket-canonicalization-failed', detail: '/s/candidate: permission denied' },
+      ],
+    },
+    {
+      label: 'reported non-ENOENT',
+      failedPath: '/s/reported',
+      error: new Error('permission denied'),
+      expectedCalls: ['/s/candidate', '/s/reported'],
+      expectedNotes: [
+        { adapter: 'tmux', note: 'socket-canonicalization-failed', detail: '/s/reported: permission denied' },
+      ],
+    },
+    {
+      label: 'candidate ENOENT',
+      failedPath: '/s/candidate',
+      error: Object.assign(new Error('candidate disappeared'), { code: 'ENOENT' }),
+      expectedCalls: ['/s/candidate'],
+      expectedNotes: [],
+    },
+    {
+      label: 'reported ENOENT',
+      failedPath: '/s/reported',
+      error: Object.assign(new Error('candidate disappeared'), { code: 'ENOENT' }),
+      expectedCalls: ['/s/candidate', '/s/reported'],
+      expectedNotes: [],
+    },
+  ];
+
+  for (const entry of cases) {
+    const notes = [];
+    const calls = [];
+    const result = await resolveServer({
+      env: { TMUX: '/s/candidate,1,0' },
+      uid: 501,
+      exists: () => true,
+      listDir: () => [],
+      probe: async () => ({ ok: true, socketPath: '/s/reported', pid: 1, version: '3.7c' }),
+      realpath: (socketPath) => {
+        calls.push(socketPath);
+        if (socketPath === entry.failedPath) throw entry.error;
+        return '/s/canonical';
+      },
+      notes,
+    });
+    assert.deepEqual(result, { ok: false, reason: 'no-server' }, entry.label);
+    assert.deepEqual(calls, entry.expectedCalls, entry.label);
+    assert.deepEqual(notes, entry.expectedNotes, entry.label);
+  }
+});

@@ -41,7 +41,15 @@ function canonicalize(socketPath, realpath, notes) {
   }
 }
 
-export async function resolveServer({ env, uid, probe, realpath = realpathSync, exists = existsSync, listDir = readdirSync }) {
+export async function resolveServer({
+  env,
+  uid,
+  probe,
+  realpath = realpathSync,
+  exists = existsSync,
+  listDir = readdirSync,
+  notes = [],
+}) {
   const rungs = [];
 
   rungs.push(...candidatesFromTmuxEnv(env.TMUX));
@@ -58,17 +66,26 @@ export async function resolveServer({ env, uid, probe, realpath = realpathSync, 
     let probed;
     try {
       probed = await probe({ socketPath: candidate.socketPath, env });
-    } catch {
+    } catch (error) {
+      if (error?.code === 'ENOENT') continue;
+      addNote(notes, 'socket-probe-failed', candidate.socketPath, error);
       continue;
     }
     if (!probed || probed.ok !== true) continue;
 
     let candidateReal;
-    let probedReal;
     try {
       candidateReal = realpath(candidate.socketPath);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') addNote(notes, 'socket-canonicalization-failed', candidate.socketPath, error);
+      continue;
+    }
+
+    let probedReal;
+    try {
       probedReal = realpath(probed.socketPath);
-    } catch {
+    } catch (error) {
+      if (error?.code !== 'ENOENT') addNote(notes, 'socket-canonicalization-failed', probed.socketPath, error);
       continue;
     }
     if (candidateReal !== probedReal) continue;

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { buildRegistry } from '../adapters/index.js';
 import { resolveRecipe } from '../capture/run.js';
+import { emitNotes } from '../cli/notes.js';
 import { GATED_AXES_BY_PHASE, unknownAxes, validateRecord } from '../core/caps.js';
 import { checkPipePaneOccupied, checkTmuxVersionFloor } from '../core/tmuxver.js';
 import { parseToml } from '../core/toml.js';
@@ -26,6 +27,7 @@ export const STATUS = Object.freeze(['pass', 'warn', 'fail', 'todo', 'unknown'])
 
 const SEVERITY = Object.freeze({ pass: 0, warn: 1, fail: 2 });
 const DAY_MS = 24 * 60 * 60 * 1000;
+const tmuxExecuteByContext = new WeakMap();
 
 function worseStatus(a, b) {
   return SEVERITY[b] > SEVERITY[a] ? b : a;
@@ -191,14 +193,26 @@ async function withStateDir(ctx, check) {
   return check(stateDir);
 }
 
-async function tmuxExecuteFor(env) {
+async function resolveTmuxExecute(env) {
+  const notes = [];
   const resolved = await resolveServer({
     env,
     uid: process.getuid(),
     probe: ({ socketPath, env: probeEnv }) => serverInfo({ socketPath, env: probeEnv }),
+    notes,
   });
+  emitNotes(notes);
   const socketPath = resolved.ok ? resolved.socketPath : path.join(os.tmpdir(), 'asterism-test-doctor-no-server');
   return (tmuxArgs, opts) => execTmux(tmuxArgs, { socketPath, env: opts?.env ?? env });
+}
+
+function tmuxExecuteFor(ctx) {
+  let execute = tmuxExecuteByContext.get(ctx);
+  if (execute === undefined) {
+    execute = resolveTmuxExecute(ctx.env);
+    tmuxExecuteByContext.set(ctx, execute);
+  }
+  return execute;
 }
 
 export function tmuxBlockContent(root) {
@@ -292,7 +306,7 @@ export const CHECKS = Object.freeze([
   Object.freeze({
     id: 'tmux.version-floor',
     prevents: "asterism's tmux integration running against a tmux release below the supported floor.",
-    run: async ({ env }) => checkTmuxVersionFloor({ env, execute: await tmuxExecuteFor(env) }),
+    run: async (ctx) => checkTmuxVersionFloor({ env: ctx.env, execute: await tmuxExecuteFor(ctx) }),
   }),
   Object.freeze({
     id: 'tmux.managed-block-drift',
@@ -302,7 +316,7 @@ export const CHECKS = Object.freeze([
   Object.freeze({
     id: 'tmux.pipe-pane-occupied',
     prevents: 'a second process piping a managed pane asterism believes it owns exclusively.',
-    run: async ({ env }) => checkPipePaneOccupied({ env, execute: await tmuxExecuteFor(env) }),
+    run: async (ctx) => checkPipePaneOccupied({ env: ctx.env, execute: await tmuxExecuteFor(ctx) }),
   }),
   Object.freeze({
     id: 'fixtures.manifest',
@@ -343,8 +357,9 @@ export const CHECKS = Object.freeze([
 
 export async function runDoctor({ root, home, env, registry, checks = CHECKS }) {
   const results = [];
+  const ctx = { root, home, env, registry };
   for (const check of checks) {
-    const { status, detail } = await check.run({ root, home, env, registry });
+    const { status, detail } = await check.run(ctx);
     results.push({ id: check.id, status, detail });
   }
 

@@ -32,6 +32,8 @@ import { execTmux } from '../src/io/tmuxexec.js';
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const AST_BIN = path.join(ROOT, 'bin', 'ast');
+const NODE = typeof globalThis.Bun === 'undefined' ? process.execPath : globalThis.Bun.which('node');
+assert.ok(NODE, 'the test runner could not locate node for CLI subprocesses');
 const ID_PATTERN = /^[a-z]+(\.[a-z-]+)+$/;
 const FAKE_TMUX_DIR = path.join(ROOT, 'harness', 'fake-tmux');
 const EXPECTED_CHECK_IDS = [
@@ -68,7 +70,7 @@ function findManualRecipe() {
 
 async function runAst(args, env) {
   try {
-    const { stdout, stderr } = await execFileAsync(process.execPath, [AST_BIN, ...args], {
+    const { stdout, stderr } = await execFileAsync(NODE, [AST_BIN, ...args], {
       cwd: ROOT,
       encoding: 'utf8',
       env,
@@ -831,4 +833,29 @@ test('bin/ast doctor renders JSON and aligned text with declared statuses and nu
     textRun.stdout,
     /^doctor: \d+ pass, \d+ warn, \d+ fail, \d+ todo, \d+ unknown$/m,
   );
+});
+
+test('bin/ast doctor emits a non-ENOENT socket resolver note', async () => {
+  const box = doctorSandbox('ast-doctor-socket-note-');
+  const socketDir = path.join('/tmp', `tmux-${process.getuid()}`);
+  const socketPath = path.join(socketDir, `asterism-test-doctor-note-${path.basename(box.base)}`);
+  mkdirSync(socketDir, { recursive: true });
+  writeFileSync(socketPath, '');
+  writeFileSync(path.join(box.emptyBin, 'tmux'), 'not executable\n');
+  const env = {
+    PATH: box.emptyBin,
+    HOME: box.home,
+    XDG_STATE_HOME: box.stateHome,
+    TERM: 'dumb',
+  };
+
+  try {
+    const { code, stdout, stderr } = await runAst(['doctor', '--json'], env);
+    assert.equal(code, 1);
+    assert.ok(Array.isArray(JSON.parse(stdout)));
+    const note = `note: tmux: socket-probe-failed: ${socketPath}: spawn tmux EACCES\n`;
+    assert.equal(stderr.split(note).length - 1, 1, stderr);
+  } finally {
+    unlinkSync(socketPath);
+  }
 });

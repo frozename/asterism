@@ -307,6 +307,35 @@ test('init reports the running-session restart outcome and unknown flags fail us
   assert.equal((await runAst(['uninstall', '--purge'], box.env)).code, 2);
 });
 
+test('init emits a socket resolver note before reporting a restart', async () => {
+  const box = await sandbox('ast-init-restart-note-');
+  const fakeRoot = path.join(box.base, 'fake-root');
+  const socketFile = path.join(box.base, 'plain-socket');
+  await mkdir(path.join(fakeRoot, 'sessions'), { recursive: true });
+  await writeFile(
+    path.join(fakeRoot, 'sessions', 'one.json'),
+    JSON.stringify({ id: 'needs-note', status: 'waiting' }),
+  );
+  await writeFile(socketFile, '');
+
+  const init = await runAst(['init'], {
+    ...box.env,
+    ASTERISM_FAKE_ROOT: fakeRoot,
+    ASTERISM_TEST: '1',
+    TMUX: `${socketFile},7777,0`,
+  });
+
+  assert.equal(init.code, 0, init.stderr);
+  assert.ok(init.stdout.includes('restart to become bindable: fake needs-note\n'), init.stdout);
+  assert.ok(
+    init.stderr.startsWith(
+      `note: tmux: socket-probe-failed: ${socketFile}: ` +
+        'ASTERISM_TEST=1 requires a socket basename starting with "asterism-test", got "plain-socket"\n',
+    ),
+    init.stderr,
+  );
+});
+
 test('init names only sessions without a strong binding on a live tmux server', async () => {
   const box = await sandbox('ast-init-restart-mixed-');
   const shimDir = path.join(box.base, 'bin');

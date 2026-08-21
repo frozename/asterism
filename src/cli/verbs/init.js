@@ -1,6 +1,7 @@
 import { access, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { emitNotes } from '../notes.js';
 import { listVerbs } from '../router.js';
 import { STRONG_WITNESSES } from '../../core/binding.js';
 import { collectObservations } from '../../io/discover.js';
@@ -170,6 +171,7 @@ async function printRestartSessions(ctx, env, home, stateDir) {
 
   const { records: bindings } = await readBindings(stateDir);
   const probedPids = new Map();
+  const notes = [];
   const servers = await resolveServers({
     env,
     uid: process.getuid(),
@@ -178,7 +180,9 @@ async function printRestartSessions(ctx, env, home, stateDir) {
       if (result.ok === true) probedPids.set(socketPath, result.pid);
       return result;
     },
+    notes,
   });
+  emitNotes(notes);
   const liveServerPids = new Set(servers.map((server) => probedPids.get(server.socketPath)).filter(Number.isInteger));
   const needsRestart = [...sessions.values()].filter(({ adapter, sessionId }) =>
     !bindings.some(({ record }) =>
