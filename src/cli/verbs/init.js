@@ -172,7 +172,8 @@ async function printRestartSessions(ctx, env, home, stateDir) {
   const { records: bindings } = await readBindings(stateDir);
   const probedPids = new Map();
   const notes = [];
-  const servers = await resolveServers({
+  const findServers = ctx.resolveServers ?? resolveServers;
+  const servers = await findServers({
     env,
     uid: process.getuid(),
     probe: async ({ socketPath, env: probeEnv }) => {

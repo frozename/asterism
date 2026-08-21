@@ -307,6 +307,58 @@ test('init reports the running-session restart outcome and unknown flags fail us
   assert.equal((await runAst(['uninstall', '--purge'], box.env)).code, 2);
 });
 
+test('init keys a probed server pid by the resolver candidate path', async () => {
+  const box = await sandbox('ast-init-restart-probed-alias-');
+  const shimDir = path.join(box.base, 'bin');
+  const fakeRoot = path.join(box.base, 'fake-root');
+  const fixturesDir = path.join(box.base, 'fixtures');
+  const logPath = path.join(box.base, 'tmux.log');
+  const candidateSocketPath = '/test-owned/asterism-test-candidate';
+  const reportedSocketPath = '/test-owned/asterism-test-probed-alias';
+  await Promise.all([
+    mkdir(shimDir),
+    mkdir(path.join(fakeRoot, 'sessions'), { recursive: true }),
+    mkdir(fixturesDir),
+  ]);
+  await copyFile(FAKE_TMUX, path.join(shimDir, 'tmux'));
+  await chmod(path.join(shimDir, 'tmux'), 0o755);
+  await writeFile(path.join(fakeRoot, 'sessions', 'one.json'), JSON.stringify({ id: 'already-bound', status: 'waiting' }));
+  await writeFile(path.join(fixturesDir, 'display-message.out'), `${reportedSocketPath},4242,3.7c\n`);
+
+  const env = {
+    ...box.env,
+    PATH: `${shimDir}${path.delimiter}${path.dirname(NODE)}`,
+    ASTERISM_TEST: '1',
+    ASTERISM_FAKE_ROOT: fakeRoot,
+    ASTERISM_FAKE_TMUX_LOG: logPath,
+    ASTERISM_FAKE_TMUX_FIXTURES: fixturesDir,
+  };
+  const store = await openStore({ env });
+  await store.writeBinding('01ARZ3NDEKTSV4RRFFQ69G5FAZ', {
+    adapter: 'fake', sessionId: 'already-bound', by: 'AgentAsserted', target: '%0',
+    socketPath: candidateSocketPath, serverPid: 4242, at: '2026-08-20T00:00:00.000Z',
+  });
+  let resolverCalls = 0;
+  const findServers = async ({ env: probeEnv, probe }) => {
+    resolverCalls += 1;
+    const result = await probe({ socketPath: candidateSocketPath, env: probeEnv });
+    assert.equal(result.socketPath, reportedSocketPath);
+    return [{ ...result, socketPath: candidateSocketPath }];
+  };
+
+  const init = await runInitDirect([], {
+    env,
+    root: ROOT,
+    adapters: buildRegistry(env),
+    resolveServers: findServers,
+  });
+
+  assert.equal(resolverCalls, 1);
+  assert.equal(init.code, 0, init.stderr);
+  assert.ok(init.stdout.includes('no running sessions need a restart\n'), init.stdout);
+  assert.equal(init.stdout.includes('restart to become bindable: fake already-bound\n'), false, init.stdout);
+});
+
 test('init emits a socket resolver note before reporting a restart', async () => {
   const box = await sandbox('ast-init-restart-note-');
   const fakeRoot = path.join(box.base, 'fake-root');
