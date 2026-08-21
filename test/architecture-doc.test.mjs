@@ -7,8 +7,8 @@ import test from 'node:test';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ARCHITECTURE_PATH = path.join(ROOT, 'ARCHITECTURE.md');
-const CITATION_PATTERN = /`((?:(?:src|bin|test|harness|schema|\.github)\/[^`\s]+|AGENTS\.md|README\.md))`/g;
-const MINIMUM_CITATION_COUNT = 40;
+const CITATION_PATTERN = /`((?:src|bin|test|harness|schema|\.github)\/[^`\s]+)`/g;
+const MINIMUM_CITATION_COUNT = 80;
 
 function citedPaths(markdown) {
   return [...markdown.matchAll(CITATION_PATTERN)].map((match) => match[1]);

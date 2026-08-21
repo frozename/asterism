@@ -1,41 +1,31 @@
 # asterism
 
-A command-line tool, in early development, for working across several coding-agent CLI
-sessions at once when each session lives in its own tmux pane.
-
-> asterism is not usable yet. The tree holds the test harness, the structural
-> guards, and four developer-facing verbs; no product verb -- listing sessions,
-> jumping to one -- exists yet.
+A command-line tool for working across coding-agent CLI sessions in tmux panes.
 
 ## What it is for
 
-asterism is designed to own the association between a tmux pane and the coding-agent CLI
-session running inside it: which sessions exist, which pane each one is in, and how to
-jump to a session by name. Its intended uses are working with many sessions at the same
-time, carrying context from one session into another, and following a session through its
-lifecycle.
+asterism records the association between a tmux pane and the coding-agent CLI session
+running inside it. It discovers sessions, lists them with sessions needing attention
+first, moves a tmux client to a selected session, and tracks session names and lifecycle
+state.
 
 ## Approach
 
-asterism will read the structured session state its targets already write to disk. It will
-not scrape rendered terminal output. That is an architectural position rather than a
-performance tradeoff: where a target publishes no structured channel for something, the
-corresponding feature will be absent, not approximated from a screen read.
+asterism reads structured session state published by registered adapters. It does not
+scrape rendered terminal output. Where an adapter exposes no structured channel for a
+fact, asterism does not approximate that fact from screen contents.
 
-asterism will never answer a permission prompt. No code path will exist for it to enable.
+asterism does not answer permission prompts.
 
 Runtime dependencies: zero. This is enforced by `test/no-deps.test.mjs`, which fails the
 suite if `package.json` grows a `dependencies` or `devDependencies` key or a `node_modules`
 directory appears at the root.
 
-asterism is not a tmux session manager, not an installer that edits another program's
-configuration tree, and not a version manager.
-
-## Status
-
-The tree holds the test harness and repository-hygiene guards described below, plus
-`bin/ast` and the developer-facing verbs listed under Verbs. No product verb is in the tree
-yet. For the current inventory, run `git ls-files`.
+`bin/ast` dispatches command modules from `src/cli/verbs/`. With no verb, it runs `ast ls`.
+The implementation also contains adapter contracts, session reconciliation, binding and
+lifecycle models, state and configuration I/O, schemas, diagnostics, and repository
+guards. [ARCHITECTURE.md](ARCHITECTURE.md) describes these boundaries and cites their
+implementations and tests.
 
 The suite covers the zero-dependency policy in `test/no-deps.test.mjs`; runner discovery in
 `test/test-discovery.test.mjs`, which pins the test script against the directory-argument
@@ -48,15 +38,24 @@ via `git check-ignore` and pairs them with a control set of paths asserted not i
 
 ## Verbs
 
-`bin/ast <verb>` dispatches to one of the following. None of these are product verbs --
-listing sessions or jumping to one is not implemented anywhere in the tree.
+`bin/ast <verb>` dispatches to one of the following modules under `src/cli/verbs/`.
 
 | Verb | What it does | Mutating |
 | --- | --- | --- |
+| `ast archive` | moves a live or parked session into the archive | yes |
+| `ast bind` | binds an agent session to a tmux pane | yes |
+| `ast doctor` | runs every registered health check and reports its aggregate result | no |
+| `ast fixture` | captures a scrubbed fixture cell or lists known cells | yes |
+| `ast go` | moves a tmux client to an agent session | yes |
+| `ast init` | installs state, hooks, keybindings, and completion | yes |
+| `ast ls` | lists discovered agent sessions with blocked sessions first | no |
+| `ast name` | sets a display name for an agent session | yes |
+| `ast new` | launches an agent in a new tmux window with an authoritative binding | yes |
+| `ast park` | parks a live agent session | yes |
+| `ast probe` | probes an installed agent CLI for known symbols | no |
+| `ast uninstall` | removes installed hooks, keybindings, and completion | yes |
+| `ast unpark` | returns a parked agent session to live | yes |
 | `ast version` | prints the installed asterism version | no |
-| `ast probe --static [--json] [--home <dir>] [--adapter <id>]` | extracts symbol counts from an installed agent CLI binary | no |
-| `ast fixture capture <cell> [--from <path>]` / `ast fixture list` | captures a scrubbed fixture cell into `fixtures/`, or lists known cells with their source kind | yes |
-| `ast doctor [--json]` | runs every registered health check and reports pass/warn/fail/todo; exits non-zero while any check is todo or fail | no |
 
 ## Requirements
 
