@@ -1008,4 +1008,14 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/pipeline.test.mjs']),
     why: 'a reconciliation pass must not erase lifecycle fields owned by park and unpark',
   }),
+
+  // --- Architecture documentation mutant
+  Object.freeze({
+    id: 'MUT-ARCHITECTURE-PATH-CHECK',
+    file: 'test/architecture-doc.test.mjs',
+    find: `  return citedPaths(markdown).filter((relativePath) => !existsSync(path.resolve(root, relativePath)));`,
+    replace: `  return citedPaths(markdown).filter((relativePath) => existsSync(path.resolve(root, relativePath)));`,
+    claimedBy: Object.freeze(['test/architecture-doc.test.mjs']),
+    why: 'the synthetic missing-path control must reject a citation checker whose existence predicate is inverted',
+  }),
 ]);

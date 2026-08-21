@@ -11,7 +11,7 @@ import { MUTANTS } from './mutants.mjs';
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const REQUIRED_COPY_ENTRIES = Object.freeze(['bin', 'src', 'harness', 'test', 'package.json']);
-const OPTIONAL_COPY_ENTRIES = Object.freeze(['fixtures', 'schema', 'vectors']);
+const OPTIONAL_COPY_ENTRIES = Object.freeze(['ARCHITECTURE.md', 'fixtures', 'schema', 'vectors']);
 const TAIL_LINES = 40;
 
 export async function runMutant(mutant, { repoRoot }) {
