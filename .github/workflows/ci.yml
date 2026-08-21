@@ -43,4 +43,19 @@ jobs:
       - run: npm install --no-save --no-audit --no-fund --no-package-lock typescript@7.0.2 @types/node@26.2.0
       - run: npx tsc --noEmit -p tsconfig.json
 
+  mutants:
+    name: Mutants
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+      # The harness applies each mutant to the working tree and reverts it, so
+      # it needs a checkout it is free to dirty; the runner's is disposable.
+      # It runs only the tests each mutant claims, which is why 149 of them
+      # cost about as long as one full node --test.
+      - run: node harness/mutants/run.mjs
+
 # The checkout is a clone of the remote, so the hygiene scan's unpushed-commit-message enumeration is empty by construction and its digest set is the committed fixture only.
