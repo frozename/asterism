@@ -152,16 +152,18 @@ if (Object.hasOwn(process.env, 'ASTERISM_MUTANT_RUN')) {
     const dest = await mkdtemp(path.join(os.tmpdir(), 'asterism-copytree-dest-'));
 
     try {
-      for (const entry of ['bin', 'src', 'harness', 'test']) {
+      for (const entry of ['bin', 'src', 'harness', 'test', '.githooks']) {
         await mkdir(path.join(src, entry));
       }
+      await writeFile(path.join(src, '.githooks', 'commit-msg'), '#!/bin/sh\nexit 0\n');
       await writeFile(path.join(src, 'package.json'), '{}');
 
       await copyTree(src, dest);
 
-      for (const entry of ['bin', 'src', 'harness', 'test', 'package.json']) {
+      for (const entry of ['bin', 'src', 'harness', 'test', '.githooks', 'package.json']) {
         assert.ok(existsSync(path.join(dest, entry)), `${entry} should have been copied`);
       }
+      assert.equal(await readFile(path.join(dest, '.githooks', 'commit-msg'), 'utf8'), '#!/bin/sh\nexit 0\n');
       assert.equal(existsSync(path.join(dest, 'fixtures')), false, 'fixtures/ was never present, so it must stay absent');
     } finally {
       await rm(src, { recursive: true, force: true });

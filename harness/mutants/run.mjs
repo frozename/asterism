@@ -10,7 +10,7 @@ import { MUTANTS } from './mutants.mjs';
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const REQUIRED_COPY_ENTRIES = Object.freeze(['bin', 'src', 'harness', 'test', 'package.json']);
+const REQUIRED_COPY_ENTRIES = Object.freeze(['bin', 'src', 'harness', 'test', 'package.json', '.githooks']);
 const OPTIONAL_COPY_ENTRIES = Object.freeze(['ARCHITECTURE.md', 'fixtures', 'schema', 'vectors']);
 const TAIL_LINES = 40;
 

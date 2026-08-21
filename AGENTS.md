@@ -92,3 +92,14 @@ git diff --stat $(git merge-base main HEAD)..HEAD
 
 Stage explicit paths (`git add <exact paths>`), then commit once with a
 neutral imperative subject.
+
+## Commit conventions
+
+Commit messages must satisfy the repository validator in
+`harness/commitlint.mjs`. Use a required type and scope, an imperative
+lowercase subject, and the documented header/body limits. The current source
+directory scopes are derived from `src/` when the validator starts.
+
+`test/commit-format.test.mjs` pins the accepted and rejected vectors, the CLI,
+the hook behavior, and synthetic multi-message parsing. See `CONTRIBUTING.md`
+for the format, scope vocabulary, hook setup, and verification commands.

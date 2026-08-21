@@ -8,13 +8,15 @@ export async function procexec(argv, options = {}) {
     throw new TypeError('procexec: argv must be a non-empty array of strings');
   }
 
-  const { env = {}, cwd, timeoutMs = DEFAULT_TIMEOUT_MS, maxBytes = DEFAULT_MAX_BYTES } = options;
+  const { env = {}, cwd, input, timeoutMs = DEFAULT_TIMEOUT_MS, maxBytes = DEFAULT_MAX_BYTES } = options;
   const [command, ...args] = argv;
 
   return new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      const stdio = input === undefined ? ['ignore', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'];
+      child = spawn(command, args, { cwd, env, stdio });
+      if (input !== undefined) child.stdin.end(input);
     } catch (error) {
       reject(error);
       return;

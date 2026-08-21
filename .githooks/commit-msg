@@ -1,0 +1,14 @@
+#!/bin/sh
+
+if ! command -v node >/dev/null 2>&1; then
+  echo 'commit-msg: node was not found on PATH; refusing commit' >&2
+  exit 127
+fi
+
+hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+comment_char=$(git config --get core.commentChar 2>/dev/null || printf '#')
+if [ -z "$comment_char" ] || [ "$comment_char" = auto ]; then
+  comment_char='#'
+fi
+
+exec node "$hook_dir/../harness/commitlint.mjs" --comment-char "$comment_char" "$1"

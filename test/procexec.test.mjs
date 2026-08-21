@@ -15,6 +15,16 @@ test('runs node -e with an argv array and returns code/stdout', async () => {
   assert.equal(result.truncated, false);
 });
 
+test('writes an explicit string to child stdin and closes the pipe', async () => {
+  const result = await procexec(
+    ['node', '-e', 'process.stdin.pipe(process.stdout)'],
+    { env: NODE_ENV, input: 'commit message bytes\n' },
+  );
+
+  assert.equal(result.code, 0);
+  assert.equal(result.stdout.toString('utf8'), 'commit message bytes\n');
+});
+
 test('rejects a non-array argv', async () => {
   await assert.rejects(() => procexec('node -e 1', { env: NODE_ENV }), TypeError);
   await assert.rejects(() => procexec([], { env: NODE_ENV }), TypeError);
