@@ -101,6 +101,11 @@ test('control: the fence extractor takes fenced lines and leaves prose alone', (
 // some name a path to explain what would happen if it existed. Those are
 // declared here with the reason, so the exemption is a decision on the record
 // rather than a hole in the check.
+// The annotation is load-bearing, not decoration: without it Object.freeze
+// infers a literal type with exactly these keys, and the controls below --
+// which must pass a ledger holding different keys, and an empty one -- stop
+// type-checking. This file is in the tsconfig include list.
+/** @type {Readonly<Record<string, string>>} */
 const HYPOTHETICAL_CITATIONS = Object.freeze({
   'test/index.js':
     'named to explain what `node --test test/` would resolve the directory argument to; the file deliberately does not exist',
