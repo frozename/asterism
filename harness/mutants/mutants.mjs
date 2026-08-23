@@ -260,6 +260,14 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/store.test.mjs']),
     why: 'the default mode is the one every typed writer rides on',
   }),
+  Object.freeze({
+    id: 'MUT-STORE-LAYOUT-ALLOW-DEGRADATION',
+    file: 'src/io/store.js',
+    find: `        if (!force && doc.entries.length < priorDoc.entries.length) {\n          throw new Error(\n            \`writeLayout: refusing to replace \${priorDoc.entries.length} entries with \${doc.entries.length}\`,\n          );\n        }`,
+    replace: `        if (false) {\n          throw new Error(\n            \`writeLayout: refusing to replace \${priorDoc.entries.length} entries with \${doc.entries.length}\`,\n          );\n        }`,
+    claimedBy: Object.freeze(['test/store.test.mjs']),
+    why: 'a shrinking capture must not replace a layout that resolves more conversations unless force is explicit',
+  }),
 
   // --- T5 mutants
   Object.freeze({

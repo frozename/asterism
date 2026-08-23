@@ -16,6 +16,7 @@ test('published schemas carry stable ids and version 1', async () => {
   const cases = [
     ['session-1.json', 'asterism:schema/session-1'],
     ['handoff-1.json', 'asterism:schema/handoff-1'],
+    ['layout-1.json', 'asterism:schema/layout-1'],
   ];
 
   for (const [name, id] of cases) {
@@ -23,6 +24,21 @@ test('published schemas carry stable ids and version 1', async () => {
     assert.equal(schema.$id, id);
     assert.equal(schema.version, 1);
   }
+});
+
+test('layout schema accepts the minimal document and rejects forbidden entry fields', async () => {
+  const schema = await loadSchema('layout-1.json');
+  const valid = {
+    version: 1,
+    capturedAt: '2026-08-23T12:00:00.000Z',
+    entries: [{ adapter: 'fake-a', sessionId: 'session-1', cwd: '/work/one' }],
+  };
+
+  assert.deepEqual(checkSchema(schema, valid), { ok: true, errors: [] });
+  const broken = { ...valid, entries: [{ ...valid.entries[0], paneId: '%7' }] };
+  const result = checkSchema(schema, broken);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((entry) => entry.startsWith('entries[0].paneId:')));
 });
 
 test('session schema accepts its open document and rejects a missing nested requirement', async () => {

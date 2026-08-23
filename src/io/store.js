@@ -106,6 +106,26 @@ export function writeJsonAtomic(targetPath, value, options = {}) {
   return writeTextAtomic(targetPath, `${JSON.stringify(value, null, 2)}\n`, options);
 }
 
+function assertLayoutDocument(doc, label) {
+  if (doc?.version !== 1) throw new Error(`${label}: version must be 1`);
+  if (!Array.isArray(doc.entries)) throw new Error(`${label}: entries must be an array`);
+  for (const entry of doc.entries) {
+    if (typeof entry?.cwd !== 'string' || !path.isAbsolute(entry.cwd)) {
+      throw new Error(`${label}: entry cwd must be an absolute path`);
+    }
+  }
+}
+
+export async function readLayout(stateDir) {
+  const layoutPath = path.join(stateDir, 'layout.json');
+  try {
+    return JSON.parse(await readFile(layoutPath, 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
 async function ensureOwnerOnlyDir(dirPath) {
   await mkdir(dirPath, { recursive: true, mode: 0o700 });
   const info = await stat(dirPath);
@@ -241,6 +261,28 @@ export async function openStore({ env }) {
 
     async writeIndex(payload, { now = Date.now() } = {}) {
       await writeJsonAtomic(path.join(stateDir, 'index.json'), { ...payload, writtenAt: new Date(now).toISOString() });
+    },
+
+    async writeLayout(doc, { force = false } = {}) {
+      assertLayoutDocument(doc, 'writeLayout');
+      const layoutPath = path.join(stateDir, 'layout.json');
+      let priorBytes = null;
+      try {
+        priorBytes = await readFile(layoutPath);
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+      if (priorBytes !== null) {
+        const priorDoc = JSON.parse(priorBytes.toString('utf8'));
+        assertLayoutDocument(priorDoc, 'writeLayout existing layout');
+        if (!force && doc.entries.length < priorDoc.entries.length) {
+          throw new Error(
+            `writeLayout: refusing to replace ${priorDoc.entries.length} entries with ${doc.entries.length}`,
+          );
+        }
+      }
+      if (priorBytes !== null) await handle.writeBackup('layout.json', priorBytes);
+      await writeJsonAtomic(layoutPath, doc);
     },
 
     async appendUsage(line) {

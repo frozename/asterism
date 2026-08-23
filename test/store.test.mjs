@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,9 +16,11 @@ import {
   checkRetentionCounts,
   checkTargetsAreIds,
   DEFAULT_CONFIG_TOML,
+  openStore,
   readArchive,
   readBindings,
   readConfig,
+  readLayout,
   readSessions,
   resolveConfigDir,
   resolveStateDir,
@@ -34,6 +36,122 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 async function tmpDir(prefix) {
   return mkdtemp(path.join(os.tmpdir(), prefix));
 }
+
+test('writeLayout refuses to replace more entries and preserves the prior bytes', async () => {
+  const home = await tmpDir('ast-store-layout-shrink-');
+  const store = await openStore({ env: { HOME: home, XDG_STATE_HOME: '' } });
+  const layoutPath = path.join(store.stateDir, 'layout.json');
+  const existingDoc = {
+    version: 1,
+    capturedAt: '2026-08-23T12:00:00.000Z',
+    entries: [
+      { adapter: 'fake-a', sessionId: 'session-1', cwd: '/work/one' },
+      { adapter: 'fake-b', sessionId: 'session-2', cwd: '/work/two' },
+    ],
+  };
+  const shrunkenDoc = {
+    version: 1,
+    capturedAt: '2026-08-23T12:01:00.000Z',
+    entries: [existingDoc.entries[0]],
+  };
+
+  await store.writeLayout(existingDoc);
+  const before = await readFile(layoutPath);
+  await assert.rejects(() => store.writeLayout(shrunkenDoc), /refusing to replace/);
+  assert.deepEqual(await readFile(layoutPath), before);
+  assert.deepEqual(await readLayout(store.stateDir), existingDoc);
+});
+
+test('writeLayout permits an equal-count replacement', async () => {
+  const home = await tmpDir('ast-store-layout-equal-');
+  const store = await openStore({ env: { HOME: home, XDG_STATE_HOME: '' } });
+  const layoutPath = path.join(store.stateDir, 'layout.json');
+  const existingDoc = {
+    version: 1,
+    capturedAt: '2026-08-23T12:00:00.000Z',
+    entries: [{ adapter: 'fake-a', sessionId: 'session-1', cwd: '/work/one' }],
+  };
+  const equalDoc = {
+    version: 1,
+    capturedAt: '2026-08-23T12:01:00.000Z',
+    entries: [{ adapter: 'fake-b', sessionId: 'session-2', cwd: '/work/two' }],
+  };
+
+  await store.writeLayout(existingDoc);
+  const before = await readFile(layoutPath);
+  await assert.doesNotReject(() => store.writeLayout(equalDoc));
+  assert.deepEqual(await readLayout(store.stateDir), equalDoc);
+  const [backupTimestamp] = readdirSync(path.join(store.stateDir, 'backups'));
+  assert.deepEqual(await readFile(path.join(store.stateDir, 'backups', backupTimestamp, 'layout.json')), before);
+});
+
+test('writeLayout permits a larger replacement and changes the bytes', async () => {
+  const home = await tmpDir('ast-store-layout-larger-');
+  const store = await openStore({ env: { HOME: home, XDG_STATE_HOME: '' } });
+  const layoutPath = path.join(store.stateDir, 'layout.json');
+  const existingDoc = {
+    version: 1,
+    capturedAt: '2026-08-23T12:00:00.000Z',
+    entries: [{ adapter: 'fake-a', sessionId: 'session-1', cwd: '/work/one' }],
+  };
+  const largerDoc = {
+    version: 1,
+    capturedAt: '2026-08-23T12:01:00.000Z',
+    entries: [
+      existingDoc.entries[0],
+      { adapter: 'fake-b', sessionId: 'session-2', cwd: '/work/two' },
+    ],
+  };
+
+  await store.writeLayout(existingDoc);
+  const before = await readFile(layoutPath);
+  await assert.doesNotReject(() => store.writeLayout(largerDoc));
+  assert.notDeepEqual(await readFile(layoutPath), before);
+  assert.deepEqual(await readLayout(store.stateDir), largerDoc);
+});
+
+test('writeLayout force replaces a shrinking document', async () => {
+  const home = await tmpDir('ast-store-layout-force-');
+  const store = await openStore({ env: { HOME: home, XDG_STATE_HOME: '' } });
+  const existingDoc = {
+    version: 1,
+    capturedAt: '2026-08-23T12:00:00.000Z',
+    entries: [
+      { adapter: 'fake-a', sessionId: 'session-1', cwd: '/work/one' },
+      { adapter: 'fake-b', sessionId: 'session-2', cwd: '/work/two' },
+    ],
+  };
+  const shrunkenDoc = {
+    version: 1,
+    capturedAt: '2026-08-23T12:01:00.000Z',
+    entries: [existingDoc.entries[0]],
+  };
+
+  await store.writeLayout(existingDoc);
+  await assert.doesNotReject(() => store.writeLayout(shrunkenDoc, { force: true }));
+  assert.deepEqual(await readLayout(store.stateDir), shrunkenDoc);
+});
+
+test('writeLayout rejects unsupported versions and relative entry cwd values before replacing bytes', async () => {
+  const home = await tmpDir('ast-store-layout-invalid-');
+  const store = await openStore({ env: { HOME: home, XDG_STATE_HOME: '' } });
+  const layoutPath = path.join(store.stateDir, 'layout.json');
+  const existingDoc = {
+    version: 1,
+    capturedAt: '2026-08-23T12:00:00.000Z',
+    entries: [{ adapter: 'fake-a', sessionId: 'session-1', cwd: '/work/one' }],
+  };
+
+  await store.writeLayout(existingDoc);
+  const before = await readFile(layoutPath);
+  await assert.rejects(() => store.writeLayout({ ...existingDoc, version: 2 }), /version must be 1/);
+  assert.deepEqual(await readFile(layoutPath), before);
+  await assert.rejects(
+    () => store.writeLayout({ ...existingDoc, entries: [{ ...existingDoc.entries[0], cwd: 'relative/path' }] }),
+    /cwd must be an absolute path/,
+  );
+  assert.deepEqual(await readFile(layoutPath), before);
+});
 
 test('state readers return valid records and report corrupt entries', async () => {
   const stateDir = await tmpDir('ast-store-readers-');

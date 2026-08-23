@@ -1,0 +1,25 @@
+{
+  "$id": "asterism:schema/layout-1",
+  "version": 1,
+  "title": "asterism layout document",
+  "type": "object",
+  "required": ["version", "capturedAt", "entries"],
+  "properties": {
+    "version": { "const": 1 },
+    "capturedAt": { "type": "string" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["adapter", "sessionId", "cwd"],
+        "properties": {
+          "adapter": { "type": "string" },
+          "sessionId": { "type": "string" },
+          "cwd": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
