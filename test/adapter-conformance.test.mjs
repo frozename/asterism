@@ -157,6 +157,37 @@ test('control: spawn source purity scan flags process, filesystem, clock, and ra
 });
 
 for (const adapter of registry.values()) {
+  test(`${adapter.id}: resumeArgv is distinct from spawnArgv`, () => {
+    const sessionId = mintedUuid();
+    const resume = adapter.resumeArgv({ sessionId });
+    const spawn = adapter.spawnArgv({ sessionId });
+    assert.notDeepEqual(resume, spawn);
+    assert.equal(resume.includes('--session-id'), false);
+    assert.equal(spawn.includes('--resume'), false);
+  });
+
+  test(`${adapter.id}: resumeArgv exists unconditionally and returns frozen string argv`, () => {
+    assert.equal(typeof adapter.resumeArgv, 'function');
+
+    const argv = adapter.resumeArgv({ sessionId: mintedUuid() });
+    assert.equal(Array.isArray(argv), true);
+    assert.equal(Object.isFrozen(argv), true);
+    assert.ok(argv.length > 0);
+    assert.equal(argv.every((entry) => typeof entry === 'string'), true);
+    assert.equal(argv.every((entry) => !SHELL_META.test(entry)), true);
+  });
+
+  test(`${adapter.id}: resumeArgv rejects non-UUID session ids`, () => {
+    assert.throws(() => adapter.resumeArgv({ sessionId: '01ARYZ6S410000000000000000' }), /sessionId/);
+  });
+
+  test(`${adapter.id}: resumeArgv rejects a canonical lowercase v1 UUID and names the v4 constraint`, () => {
+    assert.throws(
+      () => adapter.resumeArgv({ sessionId: '00010203-0405-1687-8809-0a0b0c0d0e0f' }),
+      /version-4/,
+    );
+  });
+
   test(`${adapter.id}: spawnArgv exists unconditionally and returns frozen string argv`, () => {
     assert.equal(typeof adapter.spawnArgv, 'function');
 

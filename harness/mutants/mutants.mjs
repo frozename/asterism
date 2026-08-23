@@ -764,6 +764,22 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/adapter-conformance.test.mjs']),
     why: 'a mutable argv can be altered after validation and before execution',
   }),
+  Object.freeze({
+    id: 'MUT-RESUMEARGV-CLAUDE-USES-SESSION-ID', // quarantine-exempt: real adapter id this mutant patches.
+    file: 'src/adapters/claude/spawn.js', // quarantine-exempt: real adapter path this mutant patches.
+    find: `  return Object.freeze(['claude', '--resume', sessionId]);`, // quarantine-exempt: real adapter argv string this mutant patches.
+    replace: `  return Object.freeze(['claude', '--session-id', sessionId]);`, // quarantine-exempt: real adapter argv string this mutant patches.
+    claimedBy: Object.freeze(['test/adapter-conformance.test.mjs']),
+    why: 'using the create-session flag for resume collapses reopening into blank-session creation',
+  }),
+  Object.freeze({
+    id: 'MUT-RESUMEARGV-FAKE-USES-SESSION-ID',
+    file: 'src/adapters/fake/spawn.js',
+    find: `  return Object.freeze(['fake-agent', '--resume', sessionId]);`,
+    replace: `  return Object.freeze(['fake-agent', '--session-id', sessionId]);`,
+    claimedBy: Object.freeze(['test/adapter-conformance.test.mjs']),
+    why: 'the fake must preserve the same create-versus-reopen distinction as every registered adapter',
+  }),
 
   // --- T15 mutants
   Object.freeze({

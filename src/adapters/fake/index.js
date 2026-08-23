@@ -1,5 +1,5 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { spawnArgv } from './spawn.js';
+import { resumeArgv, spawnArgv } from './spawn.js';
 import { UNKNOWN, validateRecord } from '../../core/caps.js';
 
 const BY_CONSTRUCTION = 'by construction — read src/adapters/fake/index.js';
@@ -92,6 +92,7 @@ export async function discover({ env }) {
 export default Object.freeze({
   id: 'fake',
   discover,
+  resumeArgv,
   spawnArgv,
   captures: Object.freeze([]),
   measuredOn,
