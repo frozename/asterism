@@ -87,7 +87,7 @@ export function resolveSessionRef(records, ref) {
   return { error: `no session matches "${ref}"` };
 }
 
-export async function collectSessions({ env, adapters, home, store, now = Date.now(), execute, mint }) {
+export async function collectSessions({ env, adapters, home, store, now = Date.now(), execute, mint, persist = true }) {
   const observations = [];
   const notes = [];
 
@@ -178,17 +178,19 @@ export async function collectSessions({ env, adapters, home, store, now = Date.n
   );
   const records = stableIds(active, prior.records);
 
-  for (const record of records) await store.writeSession(record.id, record);
-  for (const canary of reconciled.canaries) {
-    await store.writeCanary({ adapter: canary.adapter, key: canary.key, sha: canary.sha, at: now });
-  }
-  await writeSeamIndex(store, records, { now });
   const waiting = records.filter((record) => record.observed.status === 'waiting').length;
-  await store.appendUsage(`ls sessions=${records.length} waiting=${waiting}`);
-  try {
-    await sweepRetention(store.stateDir, { now });
-  } catch (error) {
-    notes.push(note('store', 'retention-sweep-failed', error instanceof Error ? error.message : String(error)));
+  if (persist) {
+    for (const record of records) await store.writeSession(record.id, record);
+    for (const canary of reconciled.canaries) {
+      await store.writeCanary({ adapter: canary.adapter, key: canary.key, sha: canary.sha, at: now });
+    }
+    await writeSeamIndex(store, records, { now });
+    await store.appendUsage(`ls sessions=${records.length} waiting=${waiting}`);
+    try {
+      await sweepRetention(store.stateDir, { now });
+    } catch (error) {
+      notes.push(note('store', 'retention-sweep-failed', error instanceof Error ? error.message : String(error)));
+    }
   }
 
   return Object.freeze({

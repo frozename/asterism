@@ -18,6 +18,7 @@ import {
   checkCanaryUnknownFields,
   checkRetentionCounts,
   checkTargetsAreIds,
+  readLayout,
   resolveStateDir,
 } from '../io/store.js';
 import { execTmux, serverInfo } from '../io/tmuxexec.js';
@@ -283,6 +284,40 @@ async function checkDiscoveryAgreement(ctx) {
   };
 }
 
+async function checkSnapshotFreshness({ stateDir, now = Date.now() }) {
+  let sessionNames;
+  try {
+    sessionNames = await readdir(path.join(stateDir, 'sessions'));
+  } catch (error) {
+    if (error.code === 'ENOENT') sessionNames = [];
+    else return { status: 'warn', detail: `cannot read sessions directory: ${error.message}` };
+  }
+  if (!sessionNames.some((name) => name.endsWith('.json'))) {
+    return { status: 'pass', detail: 'no sessions to snapshot' };
+  }
+
+  let layout;
+  try {
+    layout = await readLayout(stateDir);
+  } catch (error) {
+    return { status: 'warn', detail: `layout.json is unparseable: ${error.message}` };
+  }
+  if (layout === null) return { status: 'warn', detail: 'layout.json is absent; run ast snapshot' };
+
+  const capturedAt = Date.parse(layout.capturedAt ?? '');
+  if (Number.isNaN(capturedAt) || !Array.isArray(layout.entries)) {
+    return { status: 'warn', detail: 'layout.json has invalid capturedAt or entries' };
+  }
+
+  const ageMs = Math.max(0, now - capturedAt);
+  const ageDays = ageMs / DAY_MS;
+  const entryLabel = layout.entries.length === 1 ? 'entry' : 'entries';
+  return {
+    status: ageMs > DAY_MS ? 'warn' : 'pass',
+    detail: `${ageDays.toFixed(1)}d old, ${layout.entries.length} ${entryLabel}`,
+  };
+}
+
 export const CHECKS = Object.freeze([
   Object.freeze({
     id: 'state.permissions',
@@ -352,6 +387,11 @@ export const CHECKS = Object.freeze([
     id: 'discovery.source-agreement',
     prevents: 'the contract listing and the enrichment registry silently disagreeing about the same session.',
     run: checkDiscoveryAgreement,
+  }),
+  Object.freeze({
+    id: 'layout.snapshot-freshness',
+    prevents: 'a restorable session snapshot silently becoming absent or stale.',
+    run: (ctx) => withStateDir(ctx, (stateDir) => checkSnapshotFreshness({ stateDir })),
   }),
 ]);
 

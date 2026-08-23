@@ -53,6 +53,7 @@ via `git check-ignore` and pairs them with a control set of paths asserted not i
 | `ast new` | launches an agent in a new tmux window with an authoritative binding | yes |
 | `ast park` | parks a live agent session | yes |
 | `ast probe` | probes an installed agent CLI for known symbols | no |
+| `ast snapshot` | captures restorable agent session metadata | yes |
 | `ast uninstall` | removes installed hooks, keybindings, and completion | yes |
 | `ast unpark` | returns a parked agent session to live | yes |
 | `ast version` | prints the installed asterism version | no |

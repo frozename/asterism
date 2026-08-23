@@ -50,6 +50,7 @@ const EXPECTED_CHECK_IDS = [
   'canary.unknown-fields',
   'launchd.stale-plists',
   'discovery.source-agreement',
+  'layout.snapshot-freshness',
 ];
 const EXPECTED_TODO_IDS = [];
 
@@ -152,7 +153,7 @@ function writeCell(root, cellId, bytes, metaOverrides = {}) {
 // ---- registry shape ----
 
 test('every check has a unique id matching the id grammar, a non-empty prevents, and a run function', () => {
-  assert.equal(CHECKS.length, 13);
+  assert.equal(CHECKS.length, 14);
   assert.deepEqual(CHECKS.map((check) => check.id), EXPECTED_CHECK_IDS);
 
   const seen = new Set();
@@ -206,6 +207,77 @@ test('runDoctor exits 0 for pass/warn and 1 for fail or unknown', async () => {
   ];
   const unknown = await runDoctor({ root: '/unused', home: '/unused', env: {}, checks: withUnknown });
   assert.equal(unknown.exit, 1);
+});
+
+test('layout.snapshot-freshness: an empty sessions directory passes with absent or stale layout', async () => {
+  const box = doctorSandbox('ast-doctor-snapshot-empty-');
+  mkdirSync(path.join(box.stateDir, 'sessions'), { recursive: true, mode: 0o700 });
+  const env = { PATH: box.emptyBin, HOME: box.home, XDG_STATE_HOME: box.stateHome };
+  const check = checkById('layout.snapshot-freshness');
+
+  const absent = await check.run({ root: box.root, home: box.home, env });
+  assert.equal(absent.status, 'pass');
+  assert.equal(absent.detail, 'no sessions to snapshot');
+
+  writeFileSync(
+    path.join(box.stateDir, 'layout.json'),
+    JSON.stringify({
+      version: 1,
+      capturedAt: new Date(0).toISOString(),
+      entries: [{ adapter: 'fake', sessionId: 'old', cwd: '/work/old' }],
+    }),
+  );
+  const stale = await check.run({ root: box.root, home: box.home, env });
+  assert.equal(stale.status, 'pass');
+  assert.equal(stale.detail, 'no sessions to snapshot');
+});
+
+test('layout.snapshot-freshness: active sessions warn on absent, invalid, or stale layout and pass fresh', async () => {
+  const box = doctorSandbox('ast-doctor-snapshot-active-');
+  const sessionsDir = path.join(box.stateDir, 'sessions');
+  mkdirSync(sessionsDir, { recursive: true, mode: 0o700 });
+  writeFileSync(path.join(sessionsDir, 'active.json'), '{}\n');
+  const env = { PATH: box.emptyBin, HOME: box.home, XDG_STATE_HOME: box.stateHome };
+  const check = checkById('layout.snapshot-freshness');
+  const layoutPath = path.join(box.stateDir, 'layout.json');
+
+  const absent = await check.run({ root: box.root, home: box.home, env });
+  assert.equal(absent.status, 'warn');
+  assert.match(absent.detail, /layout\.json is absent/);
+
+  writeFileSync(layoutPath, '{');
+  const invalid = await check.run({ root: box.root, home: box.home, env });
+  assert.equal(invalid.status, 'warn');
+  assert.match(invalid.detail, /layout\.json is unparseable/);
+
+  writeFileSync(
+    layoutPath,
+    JSON.stringify({
+      version: 1,
+      capturedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      entries: [
+        { adapter: 'fake', sessionId: 'one', cwd: '/work/one' },
+        { adapter: 'fake', sessionId: 'two', cwd: '/work/two' },
+      ],
+    }),
+  );
+  const stale = await check.run({ root: box.root, home: box.home, env });
+  assert.equal(stale.status, 'warn');
+  assert.match(stale.detail, /2\.0d old, 2 entries/);
+
+  writeFileSync(
+    layoutPath,
+    JSON.stringify({
+      version: 1,
+      capturedAt: new Date().toISOString(),
+      entries: [{ adapter: 'fake', sessionId: 'one', cwd: '/work/one' }],
+    }),
+  );
+  const fresh = await check.run({ root: box.root, home: box.home, env });
+  assert.equal(fresh.status, 'pass');
+  assert.match(fresh.detail, /0\.0d old, 1 entry$/);
+
+  for (const result of [absent, invalid, stale, fresh]) assert.notEqual(result.status, 'fail');
 });
 
 // ---- Phase-1 registered checks ----

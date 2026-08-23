@@ -879,6 +879,14 @@ export const MUTANTS = Object.freeze([
     why: 'accepting --switch twice weakens the one-flag CLI grammar and hides caller mistakes',
   }),
   Object.freeze({
+    id: 'MUT-SNAPSHOT-ACCEPT-RELATIVE-CWD',
+    file: 'src/cli/verbs/snapshot.js',
+    find: `    typeof cwd !== 'string' || !path.isAbsolute(cwd)`,
+    replace: `    typeof cwd !== 'string'`,
+    claimedBy: Object.freeze(['test/snapshot.test.mjs']),
+    why: 'a relative cwd cannot be restored unambiguously and must be excluded before layout persistence',
+  }),
+  Object.freeze({
     id: 'MUT-NEW-EXTRA-POSITIONAL',
     file: 'src/cli/verbs/new.js',
     find: `      if (arg.startsWith('--') || cwd !== null) return null;`,
