@@ -887,6 +887,45 @@ export const MUTANTS = Object.freeze([
     why: 'a relative cwd cannot be restored unambiguously and must be excluded before layout persistence',
   }),
   Object.freeze({
+    id: 'MUT-RESTORE-USES-SPAWN-ARGV',
+    file: 'src/cli/verbs/restore.js',
+    find: `      const command = item.adapter.resumeArgv({ sessionId: entry.sessionId });`,
+    replace: `      const command = item.adapter.spawnArgv({ sessionId: entry.sessionId });`,
+    claimedBy: Object.freeze(['test/restore.test.mjs']),
+    why: 'restore must reopen the saved conversation rather than create a blank session with the same identifier',
+  }),
+  Object.freeze({
+    id: 'MUT-RESTORE-DROPS-ALREADY-LIVE-SKIP',
+    file: 'src/cli/verbs/restore.js',
+    find: `      if (!options.force && live.has(entryKey(item.entry))) {
+        printSkip(item.entry);
+        continue;
+      }
+`,
+    replace: '',
+    claimedBy: Object.freeze(['test/restore.test.mjs']),
+    why: 'an already-running conversation must not gain a duplicate resumed window during restore or retry',
+  }),
+  Object.freeze({
+    id: 'MUT-RESTORE-WRITES-BINDING',
+    file: 'src/cli/verbs/restore.js',
+    find: `      process.stdout.write(\`\${entry.sessionId} -> \${paneId} (resumed; unbound until the session-start hook fires)\\n\`);`,
+    replace: `      const { openStore } = await import('../../io/store.js');
+      const store = await openStore({ env: ctx.env });
+      await store.writeBinding('01ARZ3NDEKTSV4RRFFQ69G5FAV', {
+        sessionId: entry.sessionId,
+        adapter: entry.adapter,
+        by: 'SpawnMinted',
+        target: paneId,
+        socketPath: server.socketPath,
+        serverPid: server.serverPid,
+        at: '2026-08-23T12:00:00.000Z',
+      });
+      process.stdout.write(\`\${entry.sessionId} -> \${paneId} (resumed; unbound until the session-start hook fires)\\n\`);`,
+    claimedBy: Object.freeze(['test/restore.test.mjs']),
+    why: 'restore cannot know the authoritative pane binding; only the resumed session-start hook may persist it',
+  }),
+  Object.freeze({
     id: 'MUT-NEW-EXTRA-POSITIONAL',
     file: 'src/cli/verbs/new.js',
     find: `      if (arg.startsWith('--') || cwd !== null) return null;`,

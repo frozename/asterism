@@ -29,13 +29,13 @@ export function readTsconfigInclude(root = ROOT) {
   return tsconfig.include;
 }
 
-// 57 of 144 tracked files are type-checked by tsconfig.json today; the other
-// 87 are named below with the tsc error that keeps each one out -- either its
+// 57 of 146 tracked files are type-checked by tsconfig.json today; the other
+// 89 are named below with the tsc error that keeps each one out -- either its
 // own, or (for a file with no error of its own) the error of a file it
 // imports, transitively, that tsc still pulls into the program regardless of
 // this file being left out of tsconfig's "include": TypeScript checks every
 // file reachable by import from an included root, so a file can only be
-// truly excluded if nothing included ever imports it. Shrink the 87 by fixing
+// truly excluded if nothing included ever imports it. Shrink the 89 by fixing
 // the named file's shape, not by editing this ledger.
 export const TYPE_COVERAGE_LEDGER = Object.freeze([
   Object.freeze({ file: 'harness/gen-width.mjs', reason: 'does not type-check: harness/gen-width.mjs(43,39): error TS2339: Property \'ucdText\' does not exist on type \'{}\'.' }),
@@ -65,6 +65,7 @@ export const TYPE_COVERAGE_LEDGER = Object.freeze([
   Object.freeze({ file: 'src/cli/verbs/new.js', reason: 'does not type-check: src/cli/verbs/new.js(104,5): error TS2353: Object literal may only specify known properties, and \'cwd\' does not exist in type \'{ command?: any[]; detached?: boolean; }\'.' }),
   Object.freeze({ file: 'src/cli/verbs/park.js', reason: 'transitively imports src/io/store.js, which does not type-check: src/io/store.js(74,74): error TS2339: Property \'beforeRename\' does not exist on type \'{ mode?: number; }\'.' }),
   Object.freeze({ file: 'src/cli/verbs/probe.js', reason: 'does not type-check: src/cli/verbs/probe.js(63,50): error TS2353: Object literal may only specify known properties, and \'home\' does not exist in type \'{ fs?: typeof import("node:fs/promises"); }\'.' }),
+  Object.freeze({ file: 'src/cli/verbs/restore.js', reason: 'transitively imports src/io/store.js, which does not type-check: src/io/store.js(74,74): error TS2339: Property \'beforeRename\' does not exist on type \'{ mode?: number; }\'.' }),
   Object.freeze({ file: 'src/cli/verbs/snapshot.js', reason: 'transitively imports src/io/store.js, which does not type-check: src/io/store.js(74,74): error TS2339: Property \'beforeRename\' does not exist on type \'{ mode?: number; }\'.' }),
   Object.freeze({ file: 'src/cli/verbs/uninstall.js', reason: 'transitively imports src/io/store.js, which does not type-check: src/io/store.js(74,74): error TS2339: Property \'beforeRename\' does not exist on type \'{ mode?: number; }\'.' }),
   Object.freeze({ file: 'src/cli/verbs/unpark.js', reason: 'transitively imports src/io/store.js, which does not type-check: src/io/store.js(74,74): error TS2339: Property \'beforeRename\' does not exist on type \'{ mode?: number; }\'.' }),
@@ -118,6 +119,7 @@ export const TYPE_COVERAGE_LEDGER = Object.freeze([
   Object.freeze({ file: 'test/refuse-rules.test.mjs', reason: 'transitively imports src/adapters/index.js, which does not type-check: src/adapters/index.js(12,18): error TS2345: Argument of type \'"fake"\' is not assignable to parameter of type \'"claude"\'.' }), // quarantine-exempt
   Object.freeze({ file: 'test/render.test.mjs', reason: 'transitively imports src/core/render.js, which does not type-check: src/core/render.js(20,36): error TS2339: Property \'maxWidth\' does not exist on type \'{}\'.' }),
   Object.freeze({ file: 'test/repo-hygiene.test.mjs', reason: 'transitively imports src/io/procexec.js, which does not type-check: src/io/procexec.js(18,48): error TS2769: No overload matches this call.' }),
+  Object.freeze({ file: 'test/restore.test.mjs', reason: 'transitively imports src/io/store.js, which does not type-check: src/io/store.js(74,74): error TS2339: Property \'beforeRename\' does not exist on type \'{ mode?: number; }\'.' }),
   Object.freeze({ file: 'test/snapshot.test.mjs', reason: 'transitively imports src/io/store.js, which does not type-check: src/io/store.js(74,74): error TS2339: Property \'beforeRename\' does not exist on type \'{ mode?: number; }\'.' }),
   Object.freeze({ file: 'test/store.test.mjs', reason: 'does not type-check: test/store.test.mjs(3,10): error TS6133: \'existsSync\' is declared but its value is never read.' }),
   Object.freeze({ file: 'test/tmux-l3.test.mjs', reason: 'does not type-check: test/tmux-l3.test.mjs(479,38): error TS2353: Object literal may only specify known properties, and \'cwd\' does not exist in type \'{ command?: any[]; detached?: boolean; }\'.' }),

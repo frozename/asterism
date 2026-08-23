@@ -44,6 +44,8 @@ The installed-tree identity manifest hashes every file under `bin/` and `src/` a
 
 The published session index and handoff formats are version-1 JSON schemas (`schema/session-1.json`; `schema/handoff-1.json`). The in-repo checker supports only its declared keyword set and reports unsupported keywords as errors, while schema tests exercise required properties, enum values, and fail-closed keyword handling (`src/core/schema-check.js`, `SUPPORTED_KEYWORDS` and `checkSchema`; `test/schema.test.mjs`, test “checker handles every supported predicate in both directions and fails closed”).
 
+Portable layouts are captured by `src/cli/verbs/snapshot.js` and resumed by `src/cli/verbs/restore.js`. The document contract is `schema/layout-1.json`; layout persistence and reads remain in `src/io/store.js`. Restore validates the complete selected plan before creating detached windows and leaves authoritative binding creation to the session-start hook.
+
 ## Binding and lifecycle models
 
 Binding state is a total transition function over `Unbound`, `Candidate`, `Bound`, and `Poisoned`. Strong witnesses may produce `Bound`, weak witnesses may only produce `Candidate`, pane or process loss produces `Poisoned`, and `Poisoned` is absorbing (`src/core/binding.js`, `BINDING_STATES`, `STRONG_WITNESSES`, `WEAK_WITNESSES`, and `transition`; `test/binding.test.mjs`, exhaustive-table and weak-witness tests). A binding is writable only when its state is `Bound` and its witness is strong (`src/core/binding.js`, `writable`; `test/binding.test.mjs`, writable tests).
