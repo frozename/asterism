@@ -115,6 +115,7 @@ export const FIELD_DISPOSITION_LEDGER = Object.freeze([
   }),
 ]);
 
+/** @type {readonly string[]} */
 export const KNOWN_FIELDS = Object.freeze(FIELD_DISPOSITION_LEDGER.map((entry) => entry.key));
 
 export function fieldDispositionViolations(ledger, projectedFields) {

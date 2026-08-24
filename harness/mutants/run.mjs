@@ -70,6 +70,7 @@ export async function runMutant(mutant, { repoRoot }) {
   }
 }
 
+/** @param {{ repoRoot?: string, only?: string | null }} [options] */
 export async function runAll({ repoRoot, only } = {}) {
   const selected = MUTANTS.filter((mutant) => !only || mutant.id === only);
   const results = [];

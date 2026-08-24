@@ -1,6 +1,15 @@
 const REGEX_PREFIX_KEYWORD = /\b(?:await|case|delete|do|else|in|instanceof|new|of|return|throw|typeof|void|yield)$/;
 const CONTROL_PAREN_KEYWORD = /\b(?:catch|for|if|switch|while|with)$/;
 
+/**
+ * @typedef {
+ *   | { type: 'code', templateExpression: boolean, braceDepth: number }
+ *   | { type: 'line-comment' | 'block-comment' }
+ *   | { type: 'single-quote' | 'double-quote' | 'template', escaped: boolean }
+ *   | { type: 'regex', escaped: boolean, characterClass: boolean }
+ * } MaskContext
+ */
+
 function followsControlParenthesis(masked, closeIndex) {
   let depth = 0;
   for (let index = closeIndex; index >= 0; index -= 1) {
@@ -23,6 +32,7 @@ function canStartRegex(masked) {
 }
 
 function maskedSource(source, { maskStrings }) {
+  /** @type {MaskContext[]} */
   const contexts = [{ type: 'code', templateExpression: false, braceDepth: 0 }];
   let masked = '';
 

@@ -17,6 +17,7 @@ function isControlCodePoint(codePoint) {
   return false;
 }
 
+/** @param {unknown} value @param {{ maxWidth?: number }} [options] */
 export function untrusted(value, { maxWidth } = {}) {
   const coerced = String(value);
   let sanitized = '';

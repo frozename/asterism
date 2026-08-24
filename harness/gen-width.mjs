@@ -40,6 +40,7 @@ const RE_MN = /\p{Mn}/gu;
 const RE_ME = /\p{Me}/gu;
 const RE_CF = /\p{Cf}/gu;
 
+/** @param {{ ucdText?: string, unicodeVersion?: string }} [options] */
 export function generateWidthModule({ ucdText, unicodeVersion } = {}) {
   const usingUcd = typeof ucdText === 'string' && ucdText.length > 0;
   const haystack = scalarHaystack();
