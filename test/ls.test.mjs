@@ -275,6 +275,7 @@ test('json stdout and persisted seam index validate against the session schema',
   const jsonResult = await runAst(['--json'], { rows: [{ id: 'fake-0001', status: 'idle' }] });
   const document = JSON.parse(jsonResult.stdout);
   assert.equal(checkSchema(SESSION_SCHEMA, document).ok, true);
+  assert.ok(Object.hasOwn(document.sessions[0], 'diedAt'));
   const broken = structuredClone(document);
   delete broken.sessions[0].id;
   assert.equal(checkSchema(SESSION_SCHEMA, broken).ok, false);
@@ -286,6 +287,7 @@ test('json stdout and persisted seam index validate against the session schema',
   const index = JSON.parse(await readFile(indexPath, 'utf8'));
   assert.equal(Number.isNaN(Date.parse(index.writtenAt)), false);
   assert.equal(checkSchema(SESSION_SCHEMA, index).ok, true);
+  assert.ok(Object.hasOwn(index.sessions[0], 'diedAt'));
 });
 
 test('watch iteration cap renders once with normal exit and SIGINT stops an uncapped watch at zero', async () => {

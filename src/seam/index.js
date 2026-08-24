@@ -8,6 +8,7 @@ export function buildIndexPayload(records) {
       status: record.observed.status,
       waitingFor: record.observed.waitingFor,
       lastSeen: record.observed.lastSeen,
+      diedAt: record.diedAt,
       writeDisabled: record.flags.writeDisabled,
       reason: record.flags.reason,
     })),

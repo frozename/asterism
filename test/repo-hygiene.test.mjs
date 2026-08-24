@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
@@ -115,8 +115,11 @@ test('scan over tracked and untracked files', async () => {
   ]);
 });
 
-test('scan over a caller-selected synthetic commit history', async () => {
+test('scan over a caller-selected synthetic commit history', async (t) => {
   const { repo, env } = await initHistoryRepo('asterism-secret-history-');
+  t.after(async () => {
+    await rm(repo, { recursive: true, force: true });
+  });
   const syntheticValue = 'synthetic commit history canary';
   const digest = digestOf(syntheticValue);
   const digests = parseFixture(`${digest}\n`, { source: 'synthetic.fixture' });
