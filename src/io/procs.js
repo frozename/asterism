@@ -24,6 +24,7 @@ export function parsePsPidLstart(text) {
   return table;
 }
 
+/** @param {number[]} pids @param {{ execute?: (argv: any, options?: {}) => Promise<any>, env?: any }} [options] */
 export async function processTable(pids, { execute = procexec, env } = {}) {
   if (pids.length === 0) return result(new Map());
 
@@ -71,6 +72,7 @@ function parseAncestry(text) {
   return table;
 }
 
+/** @param {{ execute?: (argv: any, options?: {}) => Promise<any>, env?: any }} [options] */
 export async function ancestry({ execute = procexec, env } = {}) {
   try {
     const outcome = await execute(['ps', '-A', '-o', 'pid=,ppid='], { env });
@@ -83,6 +85,7 @@ export async function ancestry({ execute = procexec, env } = {}) {
   }
 }
 
+/** @param {{ execute?: (argv: any, options?: {}) => Promise<any>, env?: any, platform?: string }} [options] */
 export async function bootId({ execute = procexec, env, platform = process.platform } = {}) {
   try {
     if (platform === 'darwin') {

@@ -100,6 +100,18 @@ export function resolveSessionRef(records, ref) {
   return { error: `no session matches "${ref}"` };
 }
 
+/**
+ * @param {{
+ *   env: any,
+ *   adapters: any,
+ *   home: any,
+ *   store: any,
+ *   now?: number,
+ *   execute?: (argv: any, options?: {}) => Promise<any>,
+ *   mint?: () => string,
+ *   persist?: boolean,
+ * }} options
+ */
 export async function collectSessions({ env, adapters, home, store, now = Date.now(), execute, mint, persist = true }) {
   const observations = [];
   const notes = [];

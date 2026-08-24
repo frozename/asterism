@@ -395,6 +395,7 @@ export const CHECKS = Object.freeze([
   }),
 ]);
 
+/** @param {{ root: any, home: any, env: any, registry?: any, checks?: any }} options */
 export async function runDoctor({ root, home, env, registry, checks = CHECKS }) {
   const results = [];
   const ctx = { root, home, env, registry };

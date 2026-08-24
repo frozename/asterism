@@ -71,6 +71,7 @@ function assertOwnerOnly(mode, atPath) {
 // typed writer on the store handle delegate here -- a temp file in the
 // target's own directory, fstat-verified before a byte is written, fsynced,
 // renamed, with the containing directory fsynced after the rename.
+/** @param {string} targetPath @param {string | Buffer} bytes @param {{ mode?: number, beforeRename?: (tempPath: string) => Promise<void> }} [options] */
 export async function writeTextAtomic(targetPath, bytes, { mode = 0o600, beforeRename } = {}) {
   const tempPath = path.join(path.dirname(targetPath), `.${path.basename(targetPath)}.tmp-${randomBytes(6).toString('hex')}`);
 
@@ -149,9 +150,22 @@ async function ensureSchemaVersion(stateDir) {
   }
 }
 
+/**
+ * @overload
+ * @param {string} dirPath
+ * @returns {Promise<string[]>}
+ */
+/**
+ * @overload
+ * @param {string} dirPath
+ * @param {{ withFileTypes: true }} options
+ * @returns {Promise<import('node:fs').Dirent[]>}
+ */
+/** @param {string} dirPath @param {{ withFileTypes: true }} [options] */
 async function safeReaddir(dirPath, options) {
   try {
-    return await readdir(dirPath, options);
+    if (options?.withFileTypes) return await readdir(dirPath, { withFileTypes: true });
+    return await readdir(dirPath);
   } catch (error) {
     if (error.code === 'ENOENT') return [];
     throw error;
@@ -218,6 +232,7 @@ export async function openStore({ env }) {
       await writeJsonAtomic(path.join(stateDir, 'sessions', `${ulid}.json`), record);
     },
 
+    /** @param {string} ulid @param {any} record @param {{ beforeRemove?: (archivePath: string) => Promise<void> }} [options] */
     async archiveSession(ulid, record, { beforeRemove } = {}) {
       assertSafeName(ulid, 'archiveSession');
       const sourcePath = path.join(stateDir, 'sessions', `${ulid}.json`);
@@ -398,6 +413,7 @@ function retentionDays(config, key, fallback) {
   return typeof value === 'number' ? value : fallback;
 }
 
+/** @param {string} stateDir @param {{ now?: number, config?: { retention?: Record<string, number> } }} [options] */
 export async function sweepRetention(stateDir, { now, config = {} } = {}) {
   const archiveAfterMs = retentionDays(config, 'sessions_archive_after_dead_days', RETENTION_DEFAULTS.sessionsArchiveAfterDeadDays) * DAY_MS;
   const deleteAfterMs = retentionDays(config, 'sessions_delete_after_days', RETENTION_DEFAULTS.sessionsDeleteAfterDays) * DAY_MS;

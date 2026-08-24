@@ -93,7 +93,7 @@ export function qualifyCandidate({ record, panes, pidTable, serverPid, witness }
 async function jump({ env, record, socketPath, paneId, by, clientOverride }) {
   const confidence = CONFIDENCE[by];
   if (typeof env.TMUX === 'string' && env.TMUX.length > 0) {
-    const outcome = await switchClient({ clientName: undefined, target: paneId, socketPath, env });
+    const outcome = await switchClient({ target: paneId, socketPath, env });
     if (outcome.code !== 0) return refusal(`switch-client exited ${outcome.code}`);
     process.stdout.write(`${record.agent.sessionId} -> ${paneId} (${confidence})\n`);
     return 0;
