@@ -1219,6 +1219,22 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/lint.test.mjs']),
     why: 'disarming the write-call condition lets an unguarded fs write land outside the writer chokepoint unnoticed',
   }),
+  Object.freeze({
+    id: 'MUT-LINT-TMUX-ARGV-CHOKEPOINT-DETECTION-DISARMED',
+    file: 'harness/lint/rules/tmux-argv-chokepoint.mjs',
+    find: `      if (!ARGV_TMUX_LITERAL.test(line)) return;`,
+    replace: `      if (true) return;`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: "disarming the argv-literal match condition lets a ['tmux', ...] argv literal land outside the two declared chokepoints unnoticed",
+  }),
+  Object.freeze({
+    id: 'MUT-LINT-TMUX-LITERAL-CHOKEPOINT-DETECTION-EMPTY',
+    file: 'harness/lint/rules/tmux-literal-chokepoint.mjs',
+    find: `    for (const { line, number } of matches) {`,
+    replace: `    for (const { line, number } of []) {`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'skipping every matched line lets a send-keys/respawn-pane/capture-pane literal land outside adapter prose and the counted exemption unnoticed',
+  }),
 
   // --- Architecture documentation mutant
   Object.freeze({

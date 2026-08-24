@@ -4,6 +4,8 @@ import { verbExportContract } from './rules/verb-export-contract.mjs';
 import { noConsole } from './rules/no-console.mjs';
 import { cliSubprocessUsesNode } from './rules/cli-subprocess-uses-node.mjs';
 import { writerChokepoint } from './rules/writer-chokepoint.mjs';
+import { tmuxArgvChokepoint } from './rules/tmux-argv-chokepoint.mjs';
+import { tmuxLiteralChokepoint } from './rules/tmux-literal-chokepoint.mjs';
 
 export const RULES = Object.freeze([
   noSilentCatch,
@@ -12,4 +14,6 @@ export const RULES = Object.freeze([
   noConsole,
   cliSubprocessUsesNode,
   writerChokepoint,
+  tmuxArgvChokepoint,
+  tmuxLiteralChokepoint,
 ]);

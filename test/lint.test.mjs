@@ -6,6 +6,16 @@ import test from 'node:test';
 
 import { RULES } from '../harness/lint/index.mjs';
 import { EXEMPT as WRITER_CHOKEPOINT_EXEMPT } from '../harness/lint/rules/writer-chokepoint.mjs';
+import {
+  ARGV_TMUX_LITERAL,
+  ALLOWED_ARGV_FILES,
+} from '../harness/lint/rules/tmux-argv-chokepoint.mjs';
+import {
+  LITERAL_PATTERN as TMUX_LITERAL_PATTERN,
+  LITERAL_EXEMPT_DIR as TMUX_LITERAL_EXEMPT_DIR,
+  LITERAL_EXEMPT_FILE as TMUX_LITERAL_EXEMPT_FILE,
+  LITERAL_EXEMPT_COUNT as TMUX_LITERAL_EXEMPT_COUNT,
+} from '../harness/lint/rules/tmux-literal-chokepoint.mjs';
 import { walkFiles } from '../harness/structural.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -16,6 +26,8 @@ const EXPECTED_RULE_IDS = [
   'no-console',
   'cli-subprocess-uses-node',
   'writer-chokepoint',
+  'tmux-argv-chokepoint',
+  'tmux-literal-chokepoint',
 ];
 
 function toRepoRelative(absPath) {
@@ -51,7 +63,7 @@ function assertViolationShape(violation, ruleId) {
   assert.ok(violation.message.length > 0);
 }
 
-test('registry exposes exactly six named rules with unique stable ids', () => {
+test('registry exposes exactly eight named rules with unique stable ids', () => {
   assert.deepEqual(
     RULES.map((rule) => rule.id),
     EXPECTED_RULE_IDS,
@@ -474,4 +486,105 @@ test('control: writer-chokepoint passes a read-only line and a read-mode open; f
   const syncWriter = rule.check([{ file: 'src/core/thing.js', source: 'fs.writeFileSync(p, s)\n' }]);
   assert.equal(syncWriter.length, 1);
   assertViolationShape(syncWriter[0], rule.id);
+});
+
+test('tmux-argv-chokepoint ALLOWED_ARGV_FILES is pinned to exactly the two declared chokepoint files', () => {
+  assert.deepEqual(ALLOWED_ARGV_FILES, ['src/io/tmuxexec.js', 'src/capture/tmux.js']);
+});
+
+test('control: tmux-argv-chokepoint flags a synthetic offender; field-name lists and near-miss text pass; a declared chokepoint file is never flagged', () => {
+  const rule = ruleById('tmux-argv-chokepoint');
+
+  const offender = rule.check([{ file: 'src/cli/verbs/go.js', source: "procexec(['tmux', '-V']);\n" }]);
+  assert.equal(offender.length, 1, 'a synthetic argv-literal offender was not flagged');
+  assertViolationShape(offender[0], rule.id);
+
+  const fieldList = rule.check([
+    { file: 'src/core/reconcile.js', source: "paneWitness: Object.freeze(['tmux']),\n" },
+  ]);
+  assert.deepEqual(fieldList, [], "a single-element field-name list ['tmux'] must not read as an argv");
+
+  const nearMiss1 = rule.check([{ file: 'src/capture/run.js', source: "if (segment === 'tmux') {\n" }]);
+  assert.deepEqual(nearMiss1, []);
+
+  const nearMiss2 = rule.check([{ file: 'src/adapters/fake/index.js', source: "source: 'tmux',\n" }]);
+  assert.deepEqual(nearMiss2, []);
+
+  const allowed = rule.check([
+    {
+      file: 'src/io/tmuxexec.js',
+      source: "execute(['tmux', '-u', '-S', socketPath]);\nexecute(['tmux', '-u', '-S', other]);\n",
+    },
+  ]);
+  assert.deepEqual(allowed, [], 'an allowed chokepoint file must never be flagged, no matter how many argv literals it builds');
+});
+
+test('control: tmux-argv-chokepoint pattern ARGV_TMUX_LITERAL matches the synthetic offender directly', () => {
+  assert.match("procexec(['tmux', '-V']);\n", ARGV_TMUX_LITERAL);
+});
+
+test('tmux-literal-chokepoint LITERAL_EXEMPT_COUNT is pinned to exactly four', () => {
+  assert.equal(TMUX_LITERAL_EXEMPT_COUNT, 4);
+});
+
+test('tmux-literal-chokepoint LITERAL_EXEMPT_DIR and LITERAL_EXEMPT_FILE are pinned', () => {
+  assert.equal(TMUX_LITERAL_EXEMPT_FILE, 'src/capture/tmux.js');
+  assert.equal(
+    TMUX_LITERAL_EXEMPT_DIR.test('src/adapters/x/captures.js'),
+    true,
+    'adapter prose must be recognized as out of scope',
+  );
+});
+
+test('control: tmux-literal-chokepoint flags a must-hit offender under src/io/; adapter prose is out of scope; a clean file passes', () => {
+  const rule = ruleById('tmux-literal-chokepoint');
+  const exemptFiller = {
+    file: TMUX_LITERAL_EXEMPT_FILE,
+    source: Array(TMUX_LITERAL_EXEMPT_COUNT).fill("execute(['capture-pane']);\n").join(''),
+  };
+
+  const offense = rule.check([exemptFiller, { file: 'src/io/paneio.js', source: "exec(['send-keys', target]);\n" }]);
+  assert.equal(offense.length, 1, 'a synthetic src/io/ offender was not flagged');
+  assertViolationShape(offense[0], rule.id);
+
+  const outOfScope = rule.check([
+    exemptFiller,
+    { file: 'src/adapters/x/captures.js', source: "'run tmux capture-pane -p'\n" },
+  ]);
+  assert.deepEqual(outOfScope, [], 'adapter-scoped prose must stay out of scope');
+
+  // the pattern itself must still match inside adapter prose -- the directory
+  // check is what exempts it, not an accidentally-narrow regex
+  assert.match("'run tmux capture-pane -p'\n", TMUX_LITERAL_PATTERN);
+
+  const clean = rule.check([exemptFiller, { file: 'src/io/noop.js', source: 'export function noop() {}\n' }]);
+  assert.deepEqual(clean, []);
+});
+
+test('control: tmux-literal-chokepoint flags a moved counted exemption in either direction and a missing exempt file', () => {
+  const rule = ruleById('tmux-literal-chokepoint');
+
+  const grew = rule.check([
+    {
+      file: TMUX_LITERAL_EXEMPT_FILE,
+      source: Array(TMUX_LITERAL_EXEMPT_COUNT + 1).fill("execute(['capture-pane']);\n").join(''),
+    },
+  ]);
+  assert.equal(grew.length, 1);
+  assertViolationShape(grew[0], rule.id);
+  assert.match(grew[0].message, /a fifth forces the recorded migration follow-up/);
+
+  const dropped = rule.check([
+    {
+      file: TMUX_LITERAL_EXEMPT_FILE,
+      source: Array(TMUX_LITERAL_EXEMPT_COUNT - 1).fill("execute(['capture-pane']);\n").join(''),
+    },
+  ]);
+  assert.equal(dropped.length, 1);
+  assertViolationShape(dropped[0], rule.id);
+  assert.match(dropped[0].message, /recorded exemption count must be lowered/);
+
+  const missing = rule.check([{ file: 'src/io/paneio.js', source: 'export function noop() {}\n' }]);
+  assert.equal(missing.length, 1, 'a missing exempt file must not silently pass the count check');
+  assertViolationShape(missing[0], rule.id);
 });
