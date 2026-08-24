@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { RULES } from '../harness/lint/index.mjs';
+import { EXEMPT as WRITER_CHOKEPOINT_EXEMPT } from '../harness/lint/rules/writer-chokepoint.mjs';
 import { walkFiles } from '../harness/structural.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -14,6 +15,7 @@ const EXPECTED_RULE_IDS = [
   'verb-export-contract',
   'no-console',
   'cli-subprocess-uses-node',
+  'writer-chokepoint',
 ];
 
 function toRepoRelative(absPath) {
@@ -49,7 +51,7 @@ function assertViolationShape(violation, ruleId) {
   assert.ok(violation.message.length > 0);
 }
 
-test('registry exposes exactly five named rules with unique stable ids', () => {
+test('registry exposes exactly six named rules with unique stable ids', () => {
   assert.deepEqual(
     RULES.map((rule) => rule.id),
     EXPECTED_RULE_IDS,
@@ -421,4 +423,55 @@ test('control: cli-subprocess-uses-node recognizes rooted repository executable 
     },
   ]);
   assert.deepEqual(clean, []);
+});
+
+test('writer-chokepoint EXEMPT is pinned to exactly the three allowed writer files', () => {
+  assert.deepEqual(WRITER_CHOKEPOINT_EXEMPT, ['src/capture/run.js', 'src/io/cfgedit.js', 'src/io/store.js']);
+});
+
+test('writer-chokepoint keeps src/io/cfgedit.js exempt regardless of whether it exists today', () => {
+  assert.ok(
+    WRITER_CHOKEPOINT_EXEMPT.includes('src/io/cfgedit.js'),
+    'src/io/cfgedit.js must remain in EXEMPT even if absent',
+  );
+});
+
+test('writer-chokepoint sweep visits bin/ast and src/io/procexec.js', () => {
+  const rule = ruleById('writer-chokepoint');
+  const scannedRel = filesFor(rule).map((file) => file.file);
+  assert.ok(scannedRel.includes('bin/ast'), 'sweep did not visit bin/ast');
+  assert.ok(scannedRel.includes('src/io/procexec.js'), 'sweep did not visit src/io/procexec.js');
+});
+
+test('control: writer-chokepoint flags a synthetic offender; the same source under src/io/store.js is exempt', () => {
+  const rule = ruleById('writer-chokepoint');
+  const offenderSource = "import { writeFile } from 'node:fs/promises';\n";
+
+  const offense = rule.check([{ file: 'src/cli/verbs/evil.js', source: offenderSource }]);
+  assert.equal(offense.length, 1, 'a writeFile import outside the exemption was not flagged');
+  assertViolationShape(offense[0], rule.id);
+
+  const exempted = rule.check([{ file: 'src/io/store.js', source: offenderSource }]);
+  assert.deepEqual(exempted, [], 'src/io/store.js must be exempt regardless of its own content');
+});
+
+test('control: writer-chokepoint passes a read-only line and a read-mode open; flags a write flag open and a sync writer', () => {
+  const rule = ruleById('writer-chokepoint');
+
+  assert.deepEqual(
+    rule.check([{ file: 'src/core/thing.js', source: 'const data = await readFile(p);\n' }]),
+    [],
+  );
+  assert.deepEqual(
+    rule.check([{ file: 'src/core/thing.js', source: "await open(p, 'r')\n" }]),
+    [],
+  );
+
+  const writeFlagOpen = rule.check([{ file: 'src/core/thing.js', source: "openSync(p, 'wx')\n" }]);
+  assert.equal(writeFlagOpen.length, 1);
+  assertViolationShape(writeFlagOpen[0], rule.id);
+
+  const syncWriter = rule.check([{ file: 'src/core/thing.js', source: 'fs.writeFileSync(p, s)\n' }]);
+  assert.equal(syncWriter.length, 1);
+  assertViolationShape(syncWriter[0], rule.id);
 });

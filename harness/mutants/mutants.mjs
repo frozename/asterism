@@ -1209,6 +1209,16 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/lint.test.mjs']),
     why: 'reverting to literal process.execPath and executable names drops aliases, argv zero, and rooted paths',
   }),
+  Object.freeze({
+    id: 'MUT-LINT-WRITER-CHOKEPOINT-DETECTION-DISARMED',
+    file: 'harness/lint/rules/writer-chokepoint.mjs',
+    find: `      if (hasWriteName || hasOpenWithWriteFlag) {
+`,
+    replace: `      if (false) {
+`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'disarming the write-call condition lets an unguarded fs write land outside the writer chokepoint unnoticed',
+  }),
 
   // --- Architecture documentation mutant
   Object.freeze({

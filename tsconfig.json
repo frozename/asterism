@@ -38,6 +38,7 @@
     "harness/lint/rules/no-silent-catch.mjs",
     "harness/lint/rules/verb-export-contract.mjs",
     "harness/lint/rules/verb-refusals-are-returned.mjs",
+    "harness/lint/rules/writer-chokepoint.mjs",
     "harness/lint/source.mjs",
     "harness/mutants/mutants.mjs",
     "harness/mutants/run.mjs",
@@ -166,7 +167,6 @@
     "test/uninstall-coverage.test.mjs",
     "test/uuid.test.mjs",
     "test/width-parity-l3.test.mjs",
-    "test/width.test.mjs",
-    "test/writer-chokepoint.test.mjs"
+    "test/width.test.mjs"
   ]
 }
