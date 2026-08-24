@@ -1251,6 +1251,14 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/lint.test.mjs']),
     why: 'disarming the vendor-literal check lets a vendor-identifying string literal land outside adapter directories, fixtures/vectors dirs, or a quarantine-exempt marker unnoticed',
   }),
+  Object.freeze({
+    id: 'MUT-LINT-PURITY-DETECTION-DISARMED',
+    file: 'harness/lint/rules/purity.mjs',
+    find: `  return violations;`,
+    replace: `  return [];`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'discarding every collected violation lets a process.env read, a banned Node builtin import, a bare package import, or a relative import that escapes src/core/ land in the pure domain layer unnoticed',
+  }),
 
   // --- Architecture documentation mutant
   Object.freeze({

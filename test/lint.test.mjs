@@ -29,6 +29,7 @@ import {
   VECTORS_DIR_PATTERN as STRING_QUARANTINE_VECTORS_DIR_PATTERN,
   isOutOfScope as stringQuarantineIsOutOfScope,
 } from '../harness/lint/rules/string-quarantine.mjs';
+import { BANNED_BUILTINS as PURITY_BANNED_BUILTINS } from '../harness/lint/rules/purity.mjs';
 import { walkFiles } from '../harness/structural.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -43,6 +44,7 @@ const EXPECTED_RULE_IDS = [
   'tmux-literal-chokepoint',
   'exec-ban',
   'string-quarantine',
+  'purity',
 ];
 
 function toRepoRelative(absPath) {
@@ -78,7 +80,7 @@ function assertViolationShape(violation, ruleId) {
   assert.ok(violation.message.length > 0);
 }
 
-test('registry exposes exactly ten named rules with unique stable ids', () => {
+test('registry exposes exactly eleven named rules with unique stable ids', () => {
   assert.deepEqual(
     RULES.map((rule) => rule.id),
     EXPECTED_RULE_IDS,
@@ -752,4 +754,68 @@ test('quarantine-exempt markers are pinned to exactly the lines that need them',
     },
     'expected exactly the known set of lines that require quarantine-exempt; a new one must be a deliberate, reviewed exemption',
   );
+});
+
+test('purity BANNED_BUILTINS is pinned to exactly the fourteen banned Node builtins', () => {
+  assert.deepEqual(PURITY_BANNED_BUILTINS, [
+    'child_process',
+    'fs',
+    'fs/promises',
+    'net',
+    'os',
+    'http',
+    'https',
+    'http2',
+    'dgram',
+    'dns',
+    'tls',
+    'cluster',
+    'worker_threads',
+    'process',
+  ]);
+});
+
+test('purity sweep reaches real files under src/core/, naming several', () => {
+  const rule = ruleById('purity');
+  const scannedRel = filesFor(rule).map((file) => file.file);
+  assert.ok(scannedRel.length > 0, 'src/core/ sweep found zero files; purity cannot be checked');
+  for (const expected of ['src/core/refuse.js', 'src/core/reconcile.js', 'src/core/lifecycle.js']) {
+    assert.ok(scannedRel.includes(expected), `sweep did not visit ${expected}`);
+  }
+});
+
+test('control: purity flags a node:fs import, process.env, a bare package specifier, and an import that escapes src/core/; a clean in-core relative import passes', () => {
+  const rule = ruleById('purity');
+
+  const offendingFs = rule.check([
+    { file: 'src/core/synthetic-offender.js', source: "import { readFileSync } from 'node:fs';\n" },
+  ]);
+  assert.equal(offendingFs.length, 1, 'checker did not flag a node:fs import');
+  assertViolationShape(offendingFs[0], rule.id);
+
+  const offendingEnv = rule.check([
+    { file: 'src/core/synthetic-offender.js', source: "export function f() { return process.env.HOME; }\n" },
+  ]);
+  assert.equal(offendingEnv.length, 1, 'checker did not flag process.env');
+  assertViolationShape(offendingEnv[0], rule.id);
+
+  const offendingBare = rule.check([
+    { file: 'src/core/synthetic-offender.js', source: "import leftPad from 'left-pad';\n" },
+  ]);
+  assert.equal(offendingBare.length, 1, 'checker did not flag a bare package specifier');
+  assertViolationShape(offendingBare[0], rule.id);
+
+  const offendingEscape = rule.check([
+    { file: 'src/core/synthetic-offender.js', source: "import { helper } from '../io/helper.js';\n" },
+  ]);
+  assert.equal(offendingEscape.length, 1, 'checker did not flag a relative import escaping src/core/');
+  assertViolationShape(offendingEscape[0], rule.id);
+
+  const clean = rule.check([
+    {
+      file: 'src/core/synthetic-clean.js',
+      source: "import { a } from './b.js';\nimport path from 'node:path';\n",
+    },
+  ]);
+  assert.deepEqual(clean, []);
 });

@@ -1,6 +1,6 @@
 # Architecture
 
-Asterism is split into executable entry points, command verbs, adapter contracts, pure domain logic, external-I/O modules, and verification harnesses. The import rules that preserve these divisions are executable checks, not naming conventions (`test/import-boundaries.test.mjs`, tests “(a)” through “(e)”; `test/purity.test.mjs`, test “src/core/ holds files and every one of them is pure”).
+Asterism is split into executable entry points, command verbs, adapter contracts, pure domain logic, external-I/O modules, and verification harnesses. The import rules that preserve these divisions are executable checks, not naming conventions (`test/import-boundaries.test.mjs`, tests “(a)” through “(e)”; `harness/lint/rules/purity.mjs`; `test/lint.test.mjs`, purity control tests).
 
 ## Process entry points and command routing
 
@@ -76,7 +76,7 @@ Diagnostics are the checks registered in `CHECKS`; each returns `pass`, `warn`, 
 
 ## Enforced repository boundaries
 
-The `src/core/` layer may import only other core modules and permitted pure built-ins; it cannot read process environment or import filesystem, process, network, operating-system, or package modules (`test/purity.test.mjs`, purity sweep and synthetic controls). Product code cannot import test or harness modules, adapter implementations cannot cross-import, hook code cannot reach keypress modules, and seam paths cannot reach tmux execution (`test/import-boundaries.test.mjs`, tests “(a)” through “(e)”).
+The `src/core/` layer may import only other core modules and permitted pure built-ins; it cannot read process environment or import filesystem, process, network, operating-system, or package modules (`harness/lint/rules/purity.mjs`; `test/lint.test.mjs`, purity sweep and synthetic controls). Product code cannot import test or harness modules, adapter implementations cannot cross-import, hook code cannot reach keypress modules, and seam paths cannot reach tmux execution (`test/import-boundaries.test.mjs`, tests “(a)” through “(e)”).
 
 The refusal ledger is a frozen list of rules R1 through R9. The executable path applies R5 to mutating commands invoked inside an adapter-marked environment and applies R9 through installed-tree identity verification (`src/core/refuse.js`, `REFUSE_RULES` and `refuseIfAgentInvoked`; `bin/ast`, `main`; `test/refuse-rules.test.mjs`, rule and marker tests; `test/identity.test.mjs`, guard tests).
 
