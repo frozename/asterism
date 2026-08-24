@@ -1243,6 +1243,14 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/lint.test.mjs']),
     why: 'disarming the offense check lets a banned synchronous exec-family call, exec import shape, or shell-interpreted launch land under bin/, src/, harness/, or test/ unnoticed',
   }),
+  Object.freeze({
+    id: 'MUT-LINT-STRING-QUARANTINE-DETECTION-DISARMED',
+    file: 'harness/lint/rules/string-quarantine.mjs',
+    find: `      if (!VENDOR_LITERAL.test(line)) return;`,
+    replace: `      if (true) return;`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'disarming the vendor-literal check lets a vendor-identifying string literal land outside adapter directories, fixtures/vectors dirs, or a quarantine-exempt marker unnoticed',
+  }),
 
   // --- Architecture documentation mutant
   Object.freeze({

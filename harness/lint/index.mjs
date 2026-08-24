@@ -7,6 +7,7 @@ import { writerChokepoint } from './rules/writer-chokepoint.mjs';
 import { tmuxArgvChokepoint } from './rules/tmux-argv-chokepoint.mjs';
 import { tmuxLiteralChokepoint } from './rules/tmux-literal-chokepoint.mjs';
 import { execBan } from './rules/exec-ban.mjs';
+import { stringQuarantine } from './rules/string-quarantine.mjs';
 
 export const RULES = Object.freeze([
   noSilentCatch,
@@ -18,4 +19,5 @@ export const RULES = Object.freeze([
   tmuxArgvChokepoint,
   tmuxLiteralChokepoint,
   execBan,
+  stringQuarantine,
 ]);

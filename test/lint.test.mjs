@@ -21,6 +21,14 @@ import {
   EXEC_IMPORT_PATTERNS as EXEC_BAN_IMPORT_PATTERNS,
   SHELL_TRUE as EXEC_BAN_SHELL_TRUE,
 } from '../harness/lint/rules/exec-ban.mjs';
+import {
+  VENDOR_LITERAL as STRING_QUARANTINE_VENDOR_LITERAL,
+  ADAPTER_DIR_PATTERN as STRING_QUARANTINE_ADAPTER_DIR_PATTERN,
+  ADAPTER_INDEX_FILE as STRING_QUARANTINE_ADAPTER_INDEX_FILE,
+  FIXTURES_DIR_PATTERN as STRING_QUARANTINE_FIXTURES_DIR_PATTERN,
+  VECTORS_DIR_PATTERN as STRING_QUARANTINE_VECTORS_DIR_PATTERN,
+  isOutOfScope as stringQuarantineIsOutOfScope,
+} from '../harness/lint/rules/string-quarantine.mjs';
 import { walkFiles } from '../harness/structural.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -34,6 +42,7 @@ const EXPECTED_RULE_IDS = [
   'tmux-argv-chokepoint',
   'tmux-literal-chokepoint',
   'exec-ban',
+  'string-quarantine',
 ];
 
 function toRepoRelative(absPath) {
@@ -69,7 +78,7 @@ function assertViolationShape(violation, ruleId) {
   assert.ok(violation.message.length > 0);
 }
 
-test('registry exposes exactly nine named rules with unique stable ids', () => {
+test('registry exposes exactly ten named rules with unique stable ids', () => {
   assert.deepEqual(
     RULES.map((rule) => rule.id),
     EXPECTED_RULE_IDS,
@@ -652,5 +661,95 @@ test('exec-ban-exempt markers are pinned to exactly the lines that need them', (
     needsMarker,
     { 'harness/lint/rules/exec-ban.mjs': 5, 'test/lint.test.mjs': 8 },
     'expected exactly the known set of lines that require exec-ban-exempt; a new one must be a deliberate, reviewed exemption',
+  );
+});
+
+test('string-quarantine sweep visits bin/ast and a .github/workflows file', () => {
+  const rule = ruleById('string-quarantine');
+  const scannedRel = filesFor(rule).map((file) => file.file);
+  assert.ok(scannedRel.includes('bin/ast'), 'sweep did not visit bin/ast');
+  assert.ok(
+    scannedRel.some((file) => file.startsWith('.github/workflows/')),
+    'sweep did not visit .github/workflows',
+  );
+});
+
+test('bin/ast contains no vendor literal even though the sweep already covers it', () => {
+  const astPath = path.join(ROOT, 'bin', 'ast');
+  assert.ok(existsSync(astPath), 'bin/ast is missing');
+  const source = readFileSync(astPath, 'utf8');
+  assert.equal(STRING_QUARANTINE_VENDOR_LITERAL.test(source), false, 'bin/ast must stay vendor-neutral');
+});
+
+test('string-quarantine out-of-scope predicate is pinned: adapter dirs, adapter index, fixtures, vectors; src/core is in scope', () => {
+  assert.equal(stringQuarantineIsOutOfScope('src/adapters/anything/x.js'), true);
+  assert.equal(stringQuarantineIsOutOfScope('src/adapters/index.js'), true);
+  assert.equal(stringQuarantineIsOutOfScope('test/fixtures/x.sha256'), true);
+  assert.equal(stringQuarantineIsOutOfScope('test/vectors/x.json'), true);
+  assert.equal(stringQuarantineIsOutOfScope('src/core/x.js'), false);
+
+  assert.equal(STRING_QUARANTINE_ADAPTER_DIR_PATTERN.test('src/adapters/anything/x.js'), true);
+  assert.equal(STRING_QUARANTINE_ADAPTER_INDEX_FILE, 'src/adapters/index.js');
+  assert.equal(STRING_QUARANTINE_FIXTURES_DIR_PATTERN.test('test/fixtures/x.sha256'), true);
+  assert.equal(STRING_QUARANTINE_VECTORS_DIR_PATTERN.test('test/vectors/x.json'), true);
+});
+
+test('control: string-quarantine flags a vendor literal, a quarantine-exempt marker suppresses it, adapter/fixtures/vectors paths are out of scope', () => {
+  const rule = ruleById('string-quarantine');
+
+  const offense = rule.check([{ file: 'src/core/synthetic.js', source: 'const id = "codex";\n' }]); // quarantine-exempt: control fixture
+  assert.equal(offense.length, 1, 'a vendor literal outside quarantine was not flagged');
+  assertViolationShape(offense[0], rule.id);
+
+  const markedLine = 'const id = "codex"; // quarantine-exempt';
+  assert.equal(
+    STRING_QUARANTINE_VENDOR_LITERAL.test(markedLine),
+    true,
+    'the pattern itself should still match the marked line',
+  );
+  assert.ok(markedLine.includes('quarantine-exempt'), 'the marker must be present so the sweep skips this line');
+  const marked = rule.check([{ file: 'src/core/synthetic.js', source: `${markedLine}\n` }]);
+  assert.deepEqual(marked, [], 'a quarantine-exempt marker must suppress the sweep');
+
+  const clean = rule.check([{ file: 'src/core/synthetic.js', source: 'const id = "local";\n' }]);
+  assert.deepEqual(clean, []);
+
+  const adapterDir = rule.check([{ file: 'src/adapters/x/captures.js', source: 'codex lives here\n' }]); // quarantine-exempt: control fixture
+  assert.deepEqual(adapterDir, [], 'adapter directory prose must stay out of scope');
+
+  const adapterIndex = rule.check([{ file: 'src/adapters/index.js', source: 'codex lives here\n' }]); // quarantine-exempt: control fixture
+  assert.deepEqual(adapterIndex, [], 'src/adapters/index.js must stay out of scope');
+
+  const fixtures = rule.check([{ file: 'test/fixtures/x.sha256', source: 'codex\n' }]); // quarantine-exempt: control fixture
+  assert.deepEqual(fixtures, [], 'a fixtures/ path must stay out of scope');
+
+  const vectors = rule.check([{ file: 'test/vectors/x.json', source: 'codex\n' }]); // quarantine-exempt: control fixture
+  assert.deepEqual(vectors, [], 'a vectors/ path must stay out of scope');
+
+  const negative = rule.check([{ file: 'src/core/x.js', source: 'codex\n' }]); // quarantine-exempt: control fixture
+  assert.equal(negative.length, 1, 'src/core/x.js is in scope and must still be flagged');
+  assertViolationShape(negative[0], rule.id);
+});
+
+test('quarantine-exempt markers are pinned to exactly the lines that need them', () => {
+  const rule = ruleById('string-quarantine');
+
+  const needsMarker = {};
+  for (const file of filesFor(rule)) {
+    if (stringQuarantineIsOutOfScope(file.file)) continue;
+    const flaggable = file.source.split(/\r?\n/).filter((line) => STRING_QUARANTINE_VENDOR_LITERAL.test(line)).length;
+    if (flaggable > 0) needsMarker[file.file] = flaggable;
+  }
+  assert.deepEqual(
+    needsMarker,
+    {
+      'harness/lint/rules/string-quarantine.mjs': 1,
+      'harness/mutants/mutants.mjs': 7,
+      'test/cli.test.mjs': 1,
+      'test/fixture-capture.test.mjs': 5,
+      'test/ignore-rules.test.mjs': 1,
+      'test/lint.test.mjs': 7,
+    },
+    'expected exactly the known set of lines that require quarantine-exempt; a new one must be a deliberate, reviewed exemption',
   );
 });
