@@ -6,6 +6,7 @@ export function buildRegistry(env) {
     throw new Error('buildRegistry: env must be an object');
   }
 
+  /** @type {Map<string, typeof claude | typeof fake>} */
   const registry = new Map([[claude.id, claude]]);
 
   if (typeof env.ASTERISM_FAKE_ROOT === 'string' && env.ASTERISM_FAKE_ROOT.length > 0) {

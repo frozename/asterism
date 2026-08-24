@@ -4,7 +4,7 @@ import { createUlidMinter } from '../core/ulid.js';
 import { collectObservations } from '../io/discover.js';
 import { processTable } from '../io/procs.js';
 import { readArchive, readBindings, readSessions, sweepRetention } from '../io/store.js';
-import { buildIndexPayload, writeSeamIndex } from '../seam/index.js';
+import { writeSeamIndex } from '../seam/index.js';
 
 function note(adapter, name, detail) {
   return Object.freeze({ adapter, note: name, detail });
