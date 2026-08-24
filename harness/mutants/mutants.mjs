@@ -1194,12 +1194,20 @@ export const MUTANTS = Object.freeze([
   Object.freeze({
     id: 'MUT-LINT-CLI-SUBPROCESS-DETECTION-EMPTY',
     file: 'harness/lint/rules/cli-subprocess-uses-node.mjs',
-    find: `    for (const match of masked.matchAll(CURRENT_RUNTIME_LAUNCH)) {
+    find: `    for (const match of masked.matchAll(SUBPROCESS_LAUNCH)) {
 `,
     replace: `    for (const match of []) {
 `,
     claimedBy: Object.freeze(['test/lint.test.mjs']),
     why: 'skipping current-runtime launches lets repository executables run under Bun instead of Node',
+  }),
+  Object.freeze({
+    id: 'MUT-LINT-CLI-SUBPROCESS-DROPS-WIDENED-SHAPES',
+    file: 'harness/lint/rules/cli-subprocess-uses-node.mjs',
+    find: `  return isCurrentRuntime(command, runtimeAliases) && isRepositoryExecutable(executable, executableAliases);`,
+    replace: `  return compactCode(command) === 'process.execPath' && /^(?:AST_BIN|HOOK_BIN)$/.test(compactCode(executable));`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'reverting to literal process.execPath and executable names drops aliases, argv zero, and rooted paths',
   }),
 
   // --- Architecture documentation mutant

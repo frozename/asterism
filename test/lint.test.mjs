@@ -342,3 +342,83 @@ test('control: cli-subprocess-uses-node flags the current runtime and passes res
   ]);
   assert.deepEqual(clean, []);
 });
+
+test('control: cli-subprocess-uses-node flags process argv zero only for a repository executable', () => {
+  const rule = ruleById('cli-subprocess-uses-node');
+  const offender = rule.check([
+    {
+      file: 'test/synthetic.test.mjs',
+      source: "execFile(process.argv[0], [HOOK_BIN, 'adapter', 'event']);\n",
+    },
+  ]);
+  assert.equal(offender.length, 1);
+  assertViolationShape(offender[0], rule.id);
+
+  const clean = rule.check([
+    {
+      file: 'test/synthetic.test.mjs',
+      source: 'execFile(process.argv[0], [scriptPath]);\n',
+    },
+  ]);
+  assert.deepEqual(clean, []);
+});
+
+test('control: cli-subprocess-uses-node follows immutable runtime aliases only to repository executables', () => {
+  const rule = ruleById('cli-subprocess-uses-node');
+  const offender = rule.check([
+    {
+      file: 'test/synthetic.test.mjs',
+      source: "const runtime = process.execPath;\nspawn(runtime, [AST_BIN, 'ls']);\n",
+    },
+  ]);
+  assert.equal(offender.length, 1);
+  assertViolationShape(offender[0], rule.id);
+
+  const clean = rule.check([
+    {
+      file: 'test/synthetic.test.mjs',
+      source: 'const runtime = process.execPath;\nspawn(runtime, [scriptPath]);\n',
+    },
+  ]);
+  assert.deepEqual(clean, []);
+});
+
+test('control: cli-subprocess-uses-node recognizes immutable aliases of rooted repository paths', () => {
+  const rule = ruleById('cli-subprocess-uses-node');
+  const offender = rule.check([
+    {
+      file: 'test/synthetic.test.mjs',
+      source: "const CLI = path.join(ROOT, 'bin', 'ast');\nexecFile(process.execPath, [CLI, 'ls']);\n",
+    },
+  ]);
+  assert.equal(offender.length, 1);
+  assertViolationShape(offender[0], rule.id);
+
+  const clean = rule.check([
+    {
+      file: 'test/synthetic.test.mjs',
+      source: "const SCRIPT = path.join(ROOT, 'scripts', 'helper.mjs');\nexecFile(process.execPath, [SCRIPT]);\n",
+    },
+  ]);
+  assert.deepEqual(clean, []);
+});
+
+test('control: cli-subprocess-uses-node recognizes rooted repository executable templates', () => {
+  const rule = ruleById('cli-subprocess-uses-node');
+  const offender = rule.check([
+    {
+      file: 'test/synthetic.test.mjs',
+      source: 'spawn(process.execPath, [`${ROOT}/bin/ast-hook`, adapter, event]);\n',
+    },
+  ]);
+  assert.equal(offender.length, 1);
+  assertViolationShape(offender[0], rule.id);
+
+  const clean = rule.check([
+    {
+      file: 'test/synthetic.test.mjs',
+      source: 'spawn(process.execPath, [`${ROOT}/scripts/helper.mjs`]);\n',
+    },
+  ]);
+  assert.deepEqual(clean, []);
+});
