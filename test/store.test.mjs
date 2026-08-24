@@ -39,22 +39,53 @@ async function tmpDir(prefix) {
   return mkdtemp(path.join(os.tmpdir(), prefix));
 }
 
-test('sweepRetention archives an old dead record in the shape reconcile produces', async () => {
+test('sweepRetention archives a dead record from diedAt even when lastSeen is fresh', async () => {
   const home = await realpath(await tmpDir('ast-store-retention-real-record-'));
   const store = await openStore({ env: { HOME: home, XDG_STATE_HOME: home } });
   const now = Date.UTC(2026, 7, 24);
-  const lastSeen = now - 8 * DAY_MS;
+  const diedAt = now - 8 * DAY_MS;
   const id = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
   const { records } = await reconcile(
-    [{ source: 'contract', adapter: 'fake', at: lastSeen, fields: { sessionId: 'dead-session', status: 'dead' } }],
+    [{ source: 'contract', adapter: 'fake', at: now, fields: { sessionId: 'dead-session', status: 'dead' } }],
     { now, mint: () => id },
   );
 
-  await store.writeSession(id, records[0]);
+  await store.writeSession(id, Object.freeze({ ...records[0], diedAt }));
   const counts = await sweepRetention(store.stateDir, { now, config: {} });
 
   assert.equal(counts.sessionsArchived, 1);
   assert.equal(existsSync(path.join(store.stateDir, 'sessions', `${id}.json`)), false);
+  assert.equal(existsSync(path.join(store.stateDir, 'archive', `${id}.json`)), true);
+});
+
+test('sweepRetention stamps a migrated dead record before aging it', async () => {
+  const home = await realpath(await tmpDir('ast-store-retention-migration-'));
+  const store = await openStore({ env: { HOME: home, XDG_STATE_HOME: home } });
+  const now = Date.UTC(2026, 7, 24);
+  const id = '01ARZ3NDEKTSV4RRFFQ69G5FAW';
+  const { records } = await reconcile(
+    [
+      {
+        source: 'contract',
+        adapter: 'fake',
+        at: now - 8 * DAY_MS,
+        fields: { sessionId: 'migrated-dead-session', status: 'dead' },
+      },
+    ],
+    { now, mint: () => id },
+  );
+  const migrated = structuredClone(records[0]);
+  delete migrated.diedAt;
+  await store.writeSession(id, migrated);
+
+  const firstCounts = await sweepRetention(store.stateDir, { now, config: {} });
+  assert.equal(firstCounts.sessionsArchived, 0);
+  const afterFirstSight = await readSessions(store.stateDir);
+  assert.deepEqual(afterFirstSight.errors, []);
+  assert.equal(afterFirstSight.records[0].record.diedAt, now);
+
+  const secondCounts = await sweepRetention(store.stateDir, { now: now + 8 * DAY_MS, config: {} });
+  assert.equal(secondCounts.sessionsArchived, 1);
   assert.equal(existsSync(path.join(store.stateDir, 'archive', `${id}.json`)), true);
 });
 
@@ -444,10 +475,11 @@ async function runMegaScript() {
         writeFileSync(path.join(stateDir, 'archive', name), JSON.stringify(obj));
       }
 
-      writeSessionRaw('dead-8d.json', { observed: { status: 'dead', lastSeen: now - 8 * dayMs } });
-      writeSessionRaw('dead-2d.json', { observed: { status: 'dead', lastSeen: now - 2 * dayMs } });
+      writeSessionRaw('dead-8d.json', { diedAt: now - 8 * dayMs, observed: { status: 'dead', lastSeen: now } });
+      writeSessionRaw('dead-2d.json', { diedAt: now - 2 * dayMs, observed: { status: 'dead', lastSeen: now - 400 * dayMs } });
       writeSessionRaw('busy-400d.json', { observed: { status: 'busy', lastSeen: now - 400 * dayMs } });
-      writeSessionRaw('no-updated.json', { observed: { status: 'dead' } });
+      writeSessionRaw('no-died-at.json', { observed: { status: 'dead', lastSeen: now - 400 * dayMs } });
+      writeFileSync(path.join(stateDir, 'sessions', 'broken.json'), '{ nope');
 
       writeArchiveRaw('old-91d.json', { observed: { lastSeen: now - 91 * dayMs } });
       writeArchiveRaw('young-10d.json', { observed: { lastSeen: now - 10 * dayMs } });
@@ -484,7 +516,7 @@ async function runMegaScript() {
         deadEightArchived: existsSync(path.join(stateDir, 'archive', 'dead-8d.json')),
         deadTwoStays: existsSync(path.join(stateDir, 'sessions', 'dead-2d.json')),
         busyStays: existsSync(path.join(stateDir, 'sessions', 'busy-400d.json')),
-        noUpdatedStays: existsSync(path.join(stateDir, 'sessions', 'no-updated.json')),
+        noDiedAtStays: existsSync(path.join(stateDir, 'sessions', 'no-died-at.json')),
         old91Gone: !existsSync(path.join(stateDir, 'archive', 'old-91d.json')),
         young10Stays: existsSync(path.join(stateDir, 'archive', 'young-10d.json')),
         oldInboxGone: !existsSync(oldInboxPath),
@@ -674,7 +706,7 @@ test('sweepRetention: status-gated archive/delete, inbox TTL, backup pruning, pr
   assert.equal(result.deadEightArchived, true);
   assert.equal(result.deadTwoStays, true);
   assert.equal(result.busyStays, true);
-  assert.equal(result.noUpdatedStays, true);
+  assert.equal(result.noDiedAtStays, true);
   assert.equal(result.old91Gone, true);
   assert.equal(result.young10Stays, true);
   assert.equal(result.oldInboxGone, true);

@@ -6,8 +6,15 @@ import test from 'node:test';
 
 import { buildRegistry } from '../src/adapters/index.js';
 import fake from '../src/adapters/fake/index.js';
-import { collectSessions, resolveSessionRef, stableIds } from '../src/cli/pipeline.js';
+import {
+  collectSessions,
+  mergeOwnedFields,
+  resolveSessionRef,
+  stableIds,
+  stampDiedAt,
+} from '../src/cli/pipeline.js';
 import { applyLifecycle } from '../src/core/parkstate.js';
+import { reconcile } from '../src/core/reconcile.js';
 import { ULID_PATTERN } from '../src/core/ulid.js';
 import { openStore, readArchive, readSessions } from '../src/io/store.js';
 
@@ -32,6 +39,14 @@ async function setup(rows) {
   const store = await openStore({ env });
   const adapters = new Map([[fake.id, fake]]);
   return { tmp, root, env, store, adapters };
+}
+
+async function reconciledRecord(status, now, id = '01ARZ3NDEKTSV4RRFFQ69G5FAV') {
+  const { records } = await reconcile(
+    [{ source: 'contract', adapter: 'fake', at: now, fields: { sessionId: 'fake-0001', status } }],
+    { now, mint: () => id },
+  );
+  return records[0];
 }
 
 test('collectSessions discovers fake rows and preserves their ids across persisted runs', async () => {
@@ -93,6 +108,65 @@ test('stableIds re-keys matching records and leaves a new group untouched', () =
   const result = stableIds(records, prior);
   assert.equal(result.find((record) => record.agent.sessionId === 'a').id, 'old-a');
   assert.equal(result.find((record) => record.agent.sessionId === 'b').id, 'new-b');
+});
+
+test('stampDiedAt records the current time on the first transition into dead', async () => {
+  const prior = await reconciledRecord('idle', 1000);
+  const dead = await reconciledRecord('dead', 2000);
+  const merged = mergeOwnedFields(dead, prior);
+
+  const stamped = stampDiedAt(merged, prior, 2000);
+
+  assert.equal(stamped.diedAt, 2000);
+  assert.equal(stamped.observed.status, 'dead');
+});
+
+test('stampDiedAt preserves the first death time when dead is re-observed', async () => {
+  const prior = Object.freeze({ ...(await reconciledRecord('dead', 1000)), diedAt: 1000 });
+  const reobserved = await reconciledRecord('dead', 9000);
+  const merged = mergeOwnedFields(reobserved, prior);
+
+  const stamped = stampDiedAt(merged, prior, 9000);
+
+  assert.equal(stamped.diedAt, 1000);
+});
+
+test('stampDiedAt clears a stale death time when the session returns live', async () => {
+  const prior = Object.freeze({ ...(await reconciledRecord('dead', 1000)), diedAt: 1000 });
+  const live = await reconciledRecord('idle', 2000);
+  const merged = mergeOwnedFields(live, prior);
+
+  const stamped = stampDiedAt(merged, prior, 2000);
+
+  assert.equal(stamped.diedAt, null);
+});
+
+test('stampDiedAt fails closed by stamping migrated dead records with missing or null death times', async () => {
+  for (const shape of ['missing', 'null']) {
+    const prior = structuredClone(await reconciledRecord('dead', 1000));
+    if (shape === 'missing') delete prior.diedAt;
+    const reobserved = await reconciledRecord('dead', 2000);
+    const merged = mergeOwnedFields(reobserved, prior);
+
+    const stamped = stampDiedAt(merged, prior, 2000);
+
+    assert.equal(stamped.diedAt, 2000, shape);
+  }
+});
+
+test('collectSessions preserves the first death time through its full persisted rewrite', async () => {
+  const setupData = await setup([{ id: 'fake-0001', status: 'dead' }]);
+  const firstSeenDeadAt = Date.UTC(2026, 7, 24);
+  const first = await collectSessions({ ...setupData, now: firstSeenDeadAt });
+  assert.equal(first.records[0].diedAt, firstSeenDeadAt);
+
+  const reobservedAt = firstSeenDeadAt + 2 * 24 * 60 * 60 * 1000;
+  const second = await collectSessions({ ...setupData, now: reobservedAt });
+  assert.equal(second.records[0].diedAt, firstSeenDeadAt);
+
+  const persisted = await readSessions(setupData.store.stateDir);
+  assert.deepEqual(persisted.errors, []);
+  assert.equal(persisted.records[0].record.diedAt, firstSeenDeadAt);
 });
 
 test('collectSessions preserves lifecycle-owned fields and provenance from a parked record', async () => {

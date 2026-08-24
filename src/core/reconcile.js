@@ -336,6 +336,7 @@ function buildRecord({ id, adapter, sessionId, envelopes, now, canaryMap }) {
   return Object.freeze({
     id,
     adapter,
+    diedAt: null,
     agent: Object.freeze({
       sessionId,
       name: nameWinner ? nameWinner.value : null,

@@ -19,6 +19,7 @@
           "status": { "type": ["string", "null"] },
           "waitingFor": { "type": ["string", "null"] },
           "lastSeen": { "type": "number" },
+          "diedAt": { "type": ["number", "null"] },
           "writeDisabled": { "type": "boolean" },
           "reason": { "type": ["string", "null"] }
         }

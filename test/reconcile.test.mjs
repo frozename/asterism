@@ -201,6 +201,17 @@ test('control: basic.json enriched session has a real procStartEpoch, writeDisab
   assert.equal(enriched.prov.liveness.source, 'proc-start');
 });
 
+test('reconcile emits the asterism-owned death timestamp as a top-level null field', async () => {
+  const { records } = await reconcile(
+    [{ source: 'contract', adapter: 'fake', at: 4242, fields: { sessionId: 'dead-session', status: 'dead' } }],
+    { now: 4242, mint: seededMinter() },
+  );
+
+  assert.equal(Object.hasOwn(records[0], 'diedAt'), true);
+  assert.equal(records[0].diedAt, null);
+  assert.equal(Object.hasOwn(records[0].observed, 'diedAt'), false);
+});
+
 // ---- merge precedence ----
 
 test('merge precedence: the contended field in basic.json resolves to the expected winner', async () => {

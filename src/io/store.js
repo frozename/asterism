@@ -425,12 +425,12 @@ export async function sweepRetention(stateDir, { now, config = {} } = {}) {
     }
     if (record.observed?.status !== 'dead') continue;
 
-    const updatedAtMs = parseTimestamp(record.observed?.lastSeen);
-    if (updatedAtMs === null) {
-      problems += 1;
+    const diedAtMs = typeof record.diedAt === 'number' && Number.isFinite(record.diedAt) ? record.diedAt : null;
+    if (diedAtMs === null) {
+      await writeJsonAtomic(filePath, { ...record, diedAt: now });
       continue;
     }
-    if (now - updatedAtMs >= archiveAfterMs) {
+    if (now - diedAtMs >= archiveAfterMs) {
       await rename(filePath, path.join(archiveDir, name));
       sessionsArchived += 1;
     }

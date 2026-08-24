@@ -155,10 +155,26 @@ export const MUTANTS = Object.freeze([
   Object.freeze({
     id: 'MUT-NAME-OWNED-FIELD',
     file: 'src/cli/pipeline.js',
-    find: `export const OWNED_FIELDS = Object.freeze(['lifecycle', 'flags.parked', 'name', 'state', 'binding']);`,
-    replace: `export const OWNED_FIELDS = Object.freeze(['lifecycle', 'flags.parked', 'state', 'binding']);`,
+    find: `export const OWNED_FIELDS = Object.freeze(['lifecycle', 'flags.parked', 'name', 'state', 'binding', 'diedAt']);`,
+    replace: `export const OWNED_FIELDS = Object.freeze(['lifecycle', 'flags.parked', 'state', 'binding', 'diedAt']);`,
     claimedBy: Object.freeze(['test/name.test.mjs', 'test/pipeline.test.mjs']),
     why: 'collectSessions rewrites session files from reconciled records; deleting the owned name merge drops a human label on the next ast ls',
+  }),
+  Object.freeze({
+    id: 'MUT-DIEDAT-OWNED-FIELD',
+    file: 'src/cli/pipeline.js',
+    find: `export const OWNED_FIELDS = Object.freeze(['lifecycle', 'flags.parked', 'name', 'state', 'binding', 'diedAt']);\n\nfunction ownedValue(record, field) {`,
+    replace: `export const OWNED_FIELDS = Object.freeze(['lifecycle', 'flags.parked', 'name', 'state', 'binding']);\n\nfunction ownedValue(record, field) {`,
+    claimedBy: Object.freeze(['test/pipeline.test.mjs']),
+    why: 'collectSessions rewrites every discovered session, so diedAt must cross the owned-field merge without refreshing',
+  }),
+  Object.freeze({
+    id: 'MUT-DIEDAT-REFRESHES',
+    file: 'src/cli/pipeline.js',
+    find: `      priorRecord?.observed?.status === 'dead' &&`,
+    replace: `      false &&`,
+    claimedBy: Object.freeze(['test/pipeline.test.mjs']),
+    why: 'a dead session re-observed as dead must retain its first death timestamp instead of restarting retention age',
   }),
   Object.freeze({
     id: 'MUT-NAME-REFUSAL-HANDLER',
@@ -267,6 +283,22 @@ export const MUTANTS = Object.freeze([
     replace: `        if (false) {\n          throw new Error(\n            \`writeLayout: refusing to replace \${priorDoc.entries.length} entries with \${doc.entries.length}\`,\n          );\n        }`,
     claimedBy: Object.freeze(['test/store.test.mjs']),
     why: 'a shrinking capture must not replace a layout that resolves more conversations unless force is explicit',
+  }),
+  Object.freeze({
+    id: 'MUT-RETENTION-USES-LAST-SEEN',
+    file: 'src/io/store.js',
+    find: `    const diedAtMs = typeof record.diedAt === 'number' && Number.isFinite(record.diedAt) ? record.diedAt : null;`,
+    replace: `    const diedAtMs = parseTimestamp(record.observed?.lastSeen);`,
+    claimedBy: Object.freeze(['test/store.test.mjs']),
+    why: 'vendor observations refresh lastSeen, so archive retention must age from the asterism-owned first-death timestamp',
+  }),
+  Object.freeze({
+    id: 'MUT-RETENTION-MIGRATION-DROPS-STAMP',
+    file: 'src/io/store.js',
+    find: `    if (diedAtMs === null) {\n      await writeJsonAtomic(filePath, { ...record, diedAt: now });\n      continue;\n    }`,
+    replace: `    if (diedAtMs === null) {\n      problems += 1;\n      continue;\n    }`,
+    claimedBy: Object.freeze(['test/store.test.mjs']),
+    why: 'an existing dead record without diedAt must be stamped at first sight rather than left migration-dependent forever',
   }),
 
   // --- T5 mutants
@@ -992,8 +1024,8 @@ export const MUTANTS = Object.freeze([
   Object.freeze({
     id: 'MUT-PIPELINE-DROP-SPAWN-OWNED-FIELDS',
     file: 'src/cli/pipeline.js',
-    find: `Object.freeze(['lifecycle', 'flags.parked', 'name', 'state', 'binding']);`,
-    replace: `Object.freeze(['lifecycle', 'flags.parked', 'name']);`,
+    find: `Object.freeze(['lifecycle', 'flags.parked', 'name', 'state', 'binding', 'diedAt']);`,
+    replace: `Object.freeze(['lifecycle', 'flags.parked', 'name', 'diedAt']);`,
     claimedBy: Object.freeze(['test/pipeline.test.mjs']),
     why: 'reconciliation must not erase spawn-owned state, binding, or their provenance on the next listing',
   }),
@@ -1082,8 +1114,8 @@ export const MUTANTS = Object.freeze([
   Object.freeze({
     id: 'MUT-PIPELINE-DROPS-OWNED-FIELDS',
     file: 'src/cli/pipeline.js',
-    find: `    return mergeOwnedFields(reconciled, priorRecord);`,
-    replace: `    return reconciled;`,
+    find: `    return stampDiedAt(mergeOwnedFields(reconciled, priorRecord), priorRecord, now);`,
+    replace: `    return stampDiedAt(reconciled, priorRecord, now);`,
     claimedBy: Object.freeze(['test/pipeline.test.mjs']),
     why: 'a reconciliation pass must not erase lifecycle fields owned by park and unpark',
   }),

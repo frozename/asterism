@@ -14,7 +14,7 @@ function sessionKey(adapter, sessionId) {
   return JSON.stringify([adapter, sessionId]);
 }
 
-export const OWNED_FIELDS = Object.freeze(['lifecycle', 'flags.parked', 'name', 'state', 'binding']);
+export const OWNED_FIELDS = Object.freeze(['lifecycle', 'flags.parked', 'name', 'state', 'binding', 'diedAt']);
 
 function ownedValue(record, field) {
   let current = record;
@@ -51,7 +51,20 @@ export function mergeOwnedFields(reconciled, priorRecord) {
   return Object.freeze(merged);
 }
 
-export function stableIds(records, priorRecords) {
+export function stampDiedAt(record, priorRecord, now) {
+  let diedAt = null;
+  if (record.observed.status === 'dead') {
+    diedAt =
+      priorRecord?.observed?.status === 'dead' &&
+      typeof record.diedAt === 'number' &&
+      Number.isFinite(record.diedAt)
+        ? record.diedAt
+        : now;
+  }
+  return Object.freeze({ ...record, diedAt });
+}
+
+export function stableIds(records, priorRecords, now = Date.now()) {
   const priorBySession = new Map();
   for (const entry of priorRecords) {
     const record = entry?.record ?? entry;
@@ -66,9 +79,9 @@ export function stableIds(records, priorRecords) {
 
   const stable = records.map((record) => {
     const priorRecord = priorBySession.get(sessionKey(record.adapter, record.agent.sessionId));
-    if (priorRecord === undefined) return record;
+    if (priorRecord === undefined) return stampDiedAt(record, priorRecord, now);
     const reconciled = Object.freeze({ ...record, id: priorRecord.id });
-    return mergeOwnedFields(reconciled, priorRecord);
+    return stampDiedAt(mergeOwnedFields(reconciled, priorRecord), priorRecord, now);
   });
   stable.sort(compareRecords);
   return Object.freeze(stable);
@@ -176,7 +189,7 @@ export async function collectSessions({ env, adapters, home, store, now = Date.n
   const active = reconciled.records.filter(
     (record) => !archivedBySession.has(sessionKey(record.adapter, record.agent.sessionId)),
   );
-  const records = stableIds(active, prior.records);
+  const records = stableIds(active, prior.records, now);
 
   const waiting = records.filter((record) => record.observed.status === 'waiting').length;
   if (persist) {

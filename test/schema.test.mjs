@@ -54,6 +54,7 @@ test('session schema accepts its open document and rejects a missing nested requ
         status: 'waiting',
         waitingFor: 'approval',
         lastSeen: 1,
+        diedAt: null,
         writeDisabled: true,
         reason: null,
         futureField: 'allowed',
@@ -63,6 +64,8 @@ test('session schema accepts its open document and rejects a missing nested requ
 
   assert.deepEqual(checkSchema(schema, valid), { ok: true, errors: [] });
   assert.equal(checkSchema(schema, { ...valid, sessions: [{ ...valid.sessions[0], status: null }] }).ok, true);
+  assert.equal(checkSchema(schema, { ...valid, sessions: [{ ...valid.sessions[0], diedAt: 42 }] }).ok, true);
+  assert.equal(checkSchema(schema, { ...valid, sessions: [{ ...valid.sessions[0], diedAt: 'yesterday' }] }).ok, false);
 
   const broken = structuredClone(valid);
   delete broken.sessions[0].id;
