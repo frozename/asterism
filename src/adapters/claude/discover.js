@@ -10,7 +10,7 @@ function unknownKeys(records) {
   const keys = new Set();
   for (const record of records) {
     for (const key of Object.keys(record)) {
-      if (!KNOWN_FIELDS.includes(key)) keys.add(key);
+      if (!KNOWN_FIELDS.some((field) => field === key)) keys.add(key);
     }
   }
   return Object.freeze([...keys].sort());

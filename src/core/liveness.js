@@ -5,6 +5,7 @@ const MONTHS = Object.freeze(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', '
 // checked only for shape (three letters); its value is never consulted.
 const CTIME_PATTERN = /^[A-Za-z]{3} ([A-Za-z]{3}) ([ \d]\d) (\d{2}):(\d{2}):(\d{2}) (\d{4})$/;
 
+/** @param {string} str @param {{ utc?: boolean }} [options] */
 export function parseCtime(str, { utc } = {}) {
   if (typeof utc !== 'boolean') {
     throw new TypeError('parseCtime: options.utc must be a boolean');

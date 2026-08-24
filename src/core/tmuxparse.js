@@ -4,6 +4,7 @@ const SESSION_ID_SHAPE = /^\$\d+$/;
 // A short listing under -u newline injection reads as extra rows for the same
 // field count, not as a field-count mismatch -- paneCount is the guard that
 // catches it: reject the whole listing rather than pad or drop a row.
+/** @param {string} text @param {{ paneCount?: number }} [options] */
 export function parseListPanes(text, { paneCount } = {}) {
   const lines = String(text).split('\n').filter((line, index, all) => !(line.length === 0 && index === all.length - 1));
 

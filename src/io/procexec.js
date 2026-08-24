@@ -14,6 +14,7 @@ export async function procexec(argv, options = {}) {
   return new Promise((resolve, reject) => {
     let child;
     try {
+      /** @type {import('node:child_process').StdioOptions} */
       const stdio = input === undefined ? ['ignore', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'];
       child = spawn(command, args, { cwd, env, stdio });
       if (input !== undefined) child.stdin.end(input);
