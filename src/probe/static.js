@@ -50,7 +50,11 @@ async function pickNewest(files, dir, fs) {
   return withMtimes.reduce((best, current) => (current.mtimeMs > best.mtimeMs ? current : best)).file;
 }
 
-export async function locateBinary(adapter, { home, fs = fsPromises } = {}) {
+/**
+ * @param {{ home?: string, fs?: typeof fsPromises }} [options]
+ */
+export async function locateBinary(adapter, options = {}) {
+  const { home, fs = fsPromises } = options;
   const candidates = adapter.staticProbe.binaryCandidates(home);
 
   for (const { dir, pick } of candidates) {

@@ -269,6 +269,18 @@ for (const adapter of registry.values()) {
 const { readFile: readInstallSource } = await import('node:fs/promises');
 const { MANAGED_FILE_MARKER } = await import('../src/io/cfgedit.js');
 
+/**
+ * Structural shape of the subset of registered adapters that implement the install-plan tier.
+ * Only 'installPlan'/'profileFile' are asserted here -- other registered adapters (e.g. the
+ * fake) genuinely omit them at runtime, which is exactly what the `typeof ... === 'function'`
+ * guards below check for before this shape is trusted.
+ * @typedef {{
+ *   id: string,
+ *   installPlan: (root: string, home: string) => readonly { targetPath: string, content: string }[],
+ *   profileFile: (home: string) => string,
+ * }} InstallCapableAdapter
+ */
+
 function isFrozenInstallPlan(plan) {
   return (
     Object.isFrozen(plan) &&
@@ -282,7 +294,9 @@ function isFrozenInstallPlan(plan) {
 
 test('install-plan tier has at least one implementation', () => {
   assert.ok(
-    [...registry.values()].some((adapter) => typeof adapter.installPlan === 'function'),
+    [.../** @type {Iterable<InstallCapableAdapter>} */ (registry.values())].some(
+      (adapter) => typeof adapter.installPlan === 'function',
+    ),
     'install-plan conformance enumerated no adapter implementation',
   );
 });
@@ -291,7 +305,7 @@ test('control: a mutable synthetic install plan fails the frozen-plan predicate'
   assert.equal(isFrozenInstallPlan([{ targetPath: '/home/u/x', content: MANAGED_FILE_MARKER }]), false);
 });
 
-for (const adapter of registry.values()) {
+for (const adapter of /** @type {Iterable<InstallCapableAdapter>} */ (registry.values())) {
   if (typeof adapter.installPlan !== 'function') continue;
 
   test(`${adapter.id}: install plan is frozen, owned, marked, profile-disjoint, and uses the absolute hook binary`, () => {

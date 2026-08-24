@@ -38,7 +38,7 @@ async function setup(rows) {
   const env = { ASTERISM_FAKE_ROOT: root, HOME: tmp, XDG_STATE_HOME: tmp };
   const store = await openStore({ env });
   const adapters = new Map([[fake.id, fake]]);
-  return { tmp, root, env, store, adapters };
+  return { tmp, root, env, store, adapters, home: tmp };
 }
 
 async function reconciledRecord(status, now, id = '01ARZ3NDEKTSV4RRFFQ69G5FAV') {

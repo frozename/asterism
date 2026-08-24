@@ -93,6 +93,7 @@ async function inspectManifestCell(root, id, cell, env) {
   return { captured: true, stale, staleReason, status, versionUnknown };
 }
 
+/** @param {{ root: any, env: any, home?: any, registry?: any }} ctx */
 async function checkFixturesManifest({ root, env }) {
   const manifestPath = path.join(root, 'fixtures', 'MANIFEST.toml');
 

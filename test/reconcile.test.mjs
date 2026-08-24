@@ -329,7 +329,13 @@ test('two fresh minters with identical injected inputs mint identical first ULID
 test('createUlidMinter throws when now or random is missing or not a function', () => {
   assert.throws(() => createUlidMinter({ now: () => 1, random: null }), TypeError);
   assert.throws(() => createUlidMinter({ now: null, random: () => new Uint8Array(10) }), TypeError);
-  assert.throws(() => createUlidMinter({}), TypeError);
+  assert.throws(
+    () =>
+      createUlidMinter(
+        /** @type {{ now: () => number, random: (count: number) => Uint8Array }} */ ({}),
+      ),
+    TypeError,
+  );
 });
 
 // ---- benchmark ----

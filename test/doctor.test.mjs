@@ -90,7 +90,12 @@ function checkById(id) {
 
 function syntheticRegistry(...extraAdapters) {
   const synth = { id: 'synth', capabilities: fullCapabilityRecord(), discover: async () => [] };
-  return new Map([[synth.id, synth], ...extraAdapters.map((adapter) => [adapter.id, adapter])]);
+  /** @type {[string, any][]} */
+  const entries = [
+    [synth.id, synth],
+    .../** @type {[string, any][]} */ (extraAdapters.map((adapter) => [adapter.id, adapter])),
+  ];
+  return new Map(entries);
 }
 
 function doctorSandbox(prefix) {

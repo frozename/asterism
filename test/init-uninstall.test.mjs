@@ -18,7 +18,9 @@ const AST_BIN = path.join(ROOT, 'bin', 'ast');
 const FAKE_TMUX = path.join(ROOT, 'harness', 'fake-tmux', 'tmux');
 const NODE = typeof globalThis.Bun === 'undefined' ? process.execPath : globalThis.Bun.which('node');
 assert.ok(NODE, 'the test runner could not locate node for the fake-tmux shebang');
-const adapter = [...buildRegistry({}).values()][0];
+const adapter = /** @type {{ profileFile: (home: string) => string, installPlan: (root: string, home: string) => readonly { targetPath: string }[], agentEnvMarkers: readonly string[] }} */ (
+  [...buildRegistry({}).values()][0]
+);
 
 async function sandbox(prefix) {
   const base = await mkdtemp(path.join(os.tmpdir(), prefix));

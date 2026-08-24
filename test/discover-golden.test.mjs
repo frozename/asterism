@@ -15,7 +15,14 @@ const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const registry = buildRegistry({ ASTERISM_FAKE_ROOT: path.join(ROOT, 'vectors', 'fake') });
 const vendorId = [...registry.keys()].find((id) => id !== 'fake');
-const vendor = registry.get(vendorId);
+/**
+ * @typedef {{
+ *   parseAgentsJson: (text: string) => { rows: readonly Record<string, unknown>[], unknownKeys: readonly string[], error: string | null },
+ *   parseRegistryRecord: (text: string) => { record: Record<string, unknown> | null, unknownKeys: readonly string[], error: string | null },
+ *   goldenCells: readonly string[],
+ * }} VendorUnderTest
+ */
+const vendor = /** @type {VendorUnderTest} */ (registry.get(vendorId));
 const FIXTURES_ROOT = path.join(ROOT, 'fixtures');
 const IS_BUN = typeof globalThis.Bun !== 'undefined';
 
@@ -161,7 +168,9 @@ for (const cell of vendor.goldenCells) {
 const agentsCells = vendor.goldenCells.filter((cell) => cellKind(cell) === 'agents');
 const registryCells = vendor.goldenCells.filter((cell) => cellKind(cell) === 'registry');
 const allReplayCells = [...agentsCells, ...registryCells];
-const firstMissingReplay = allReplayCells.map((cell) => [cell, resolveCell(FIXTURES_ROOT, cell)]).find(([, value]) => value.mode === 'todo');
+const firstMissingReplay = allReplayCells
+  .map((cell) => /** @type {[string, ReturnType<typeof resolveCell>]} */ ([cell, resolveCell(FIXTURES_ROOT, cell)]))
+  .find(([, value]) => value.mode === 'todo');
 
 if (firstMissingReplay) {
   registerTodo('discovery golden enrichment-absent replay', firstMissingReplay[1].message);
@@ -183,7 +192,9 @@ if (firstMissingReplay) {
   });
 }
 
-const probeSource = agentsCells.map((cell) => [cell, resolveCell(FIXTURES_ROOT, cell)]).find(([, value]) => value.mode === 'real');
+const probeSource = agentsCells
+  .map((cell) => /** @type {[string, ReturnType<typeof resolveCell>]} */ ([cell, resolveCell(FIXTURES_ROOT, cell)]))
+  .find(([, value]) => value.mode === 'real');
 if (!probeSource) {
   registerTodo('discovery golden unknown-key replay', resolveCell(FIXTURES_ROOT, agentsCells[0]).message);
 } else {
@@ -237,7 +248,7 @@ if (processResolution.mode === 'todo') {
     const registryStarts = new Map();
     for (const cell of presentRegistryCells) {
       for (const envelope of registryEnvelopes(cell)) {
-        registryStarts.set(envelope.fields.pid, parseCtime(envelope.fields.procStart, { utc: true }));
+        registryStarts.set(envelope.fields.pid, parseCtime(/** @type {string} */ (envelope.fields.procStart), { utc: true }));
       }
     }
     const shared = [...registryStarts.keys()].filter((pid) => observed.has(pid));

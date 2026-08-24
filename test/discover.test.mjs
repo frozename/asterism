@@ -11,7 +11,30 @@ import { checkDiscoverySources, collectObservations } from '../src/io/discover.j
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const registry = buildRegistry({ ASTERISM_FAKE_ROOT: path.join(ROOT, 'vectors', 'fake') });
 const vendorId = [...registry.keys()].find((id) => id !== 'fake');
-const vendor = registry.get(vendorId);
+/**
+ * Minimal structural shape of the non-fake adapter, listing only the members this file reads.
+ * The registry's Map value type is a union with the 'fake' adapter's much smaller shape, so a
+ * direct annotation on the `.get()` result would fail assignability (fake genuinely lacks these
+ * members at runtime). Narrow through `unknown` since this file already picks `vendorId` at
+ * runtime to be the one adapter that has this shape.
+ * @typedef {{
+ *   discoverArgv: () => readonly string[],
+ *   registryDir: (home: string) => string,
+ *   ENRICHMENT: { maxFileBytes: number },
+ *   parseAgentsJson: (text: string) => {
+ *     rows: readonly Record<string, unknown>[],
+ *     unknownKeys: readonly string[],
+ *     error: string | null,
+ *   },
+ *   parseRegistryRecord: (text: string) => {
+ *     record: Record<string, unknown> | null,
+ *     unknownKeys: readonly string[],
+ *     error: string | null,
+ *   },
+ * }} VendorAdapter
+ */
+const vendorUnknown = /** @type {unknown} */ (registry.get(vendorId));
+const vendor = /** @type {VendorAdapter} */ (vendorUnknown);
 const MIXED_PATH = path.join(ROOT, 'vectors', vendorId, 'synthetic', 'agents-json', 'mixed.json');
 const RECORD_PATH = path.join(ROOT, 'vectors', vendorId, 'synthetic', 'registry', '1234.json');
 const NOW = 1_786_000_000_000;

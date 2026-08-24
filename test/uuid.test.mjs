@@ -32,7 +32,10 @@ test('two fresh UUID minters with identical injected random bytes mint identical
 });
 
 test('createUuidMinter rejects a missing or malformed random source', () => {
-  assert.throws(() => createUuidMinter({}), TypeError);
+  assert.throws(
+    () => createUuidMinter(/** @type {{ random: (count: number) => Uint8Array }} */ ({})),
+    TypeError,
+  );
   assert.throws(() => createUuidMinter({ random: null }), TypeError);
   const mint = createUuidMinter({ random: () => Uint8Array.from([1, 2, 3]) });
   assert.throws(() => mint(), /16 byte/);

@@ -51,9 +51,8 @@ export async function run(argv, ctx) {
   }
 
   try {
-    const store = options.dryRun
-      ? { stateDir: resolveStateDir(ctx.env) }
-      : await openStore({ env: ctx.env });
+    const realStore = options.dryRun ? null : await openStore({ env: ctx.env });
+    const store = realStore ?? { stateDir: resolveStateDir(ctx.env) };
     const { records } = await collectSessions({
       env: ctx.env,
       adapters: ctx.adapters,
@@ -67,7 +66,7 @@ export async function run(argv, ctx) {
       entries: records.map(layoutEntry).filter((entry) => entry !== null),
     };
 
-    if (!options.dryRun) await store.writeLayout(doc, options.force ? { force: true } : {});
+    if (realStore !== null) await realStore.writeLayout(doc, options.force ? { force: true } : {});
     receipt(doc.entries.length, options.dryRun);
     return 0;
   } catch (error) {

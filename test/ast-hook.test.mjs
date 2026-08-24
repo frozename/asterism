@@ -14,7 +14,7 @@ const NODE = typeof globalThis.Bun === 'undefined' ? process.execPath : globalTh
 assert.ok(NODE, 'the test runner could not locate node for hook subprocesses');
 const registry = buildRegistry({ ASTERISM_FAKE_ROOT: path.join(ROOT, 'vectors', 'fake') });
 const vendorId = [...registry.keys()].find((id) => id !== 'fake');
-const vendor = registry.get(vendorId);
+const vendor = /** @type {{ hooks: { sessionIdEnvVar: string } }} */ (registry.get(vendorId));
 const sessionPayload = JSON.parse(
   await readFile(path.join(ROOT, 'vectors', vendorId, 'hook', 'session-start.json'), 'utf8'),
 );

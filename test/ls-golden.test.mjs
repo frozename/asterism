@@ -18,7 +18,9 @@ const NODE = typeof globalThis.Bun === 'undefined' ? process.execPath : globalTh
 assert.ok(NODE, 'the test runner could not locate node for CLI subprocesses');
 const IS_BUN = typeof globalThis.Bun !== 'undefined';
 const adapterId = [...buildRegistry({ ASTERISM_FAKE_ROOT: '/x' }).keys()].find((id) => id !== 'fake');
-const adapter = buildRegistry({ ASTERISM_FAKE_ROOT: '/x' }).get(adapterId);
+const adapter = /** @type {{ goldenCells: readonly string[], discoverArgv: () => readonly string[] }} */ (
+  buildRegistry({ ASTERISM_FAKE_ROOT: '/x' }).get(adapterId)
+);
 const cell = adapter.goldenCells.find((entry) => entry.split('/')[1] === 'agents-json' && entry.endsWith('/waiting'));
 const rawPath = path.join(ROOT, 'fixtures', ...cell.split('/'), 'raw');
 

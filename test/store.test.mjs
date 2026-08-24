@@ -4,7 +4,6 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
@@ -309,11 +308,13 @@ test('writeLayout rejects unsupported versions and relative entry cwd values bef
 
 test('state readers return valid records and report corrupt entries', async () => {
   const stateDir = await tmpDir('ast-store-readers-');
-  for (const [subdir, extension, reader] of [
+  /** @type {Array<[string, string, typeof readSessions]>} */
+  const readerCases = [
     ['sessions', '.json', readSessions],
     ['archive', '.json', readArchive],
     ['bindings', '.bind', readBindings],
-  ]) {
+  ];
+  for (const [subdir, extension, reader] of readerCases) {
     const dir = path.join(stateDir, subdir);
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, `good${extension}`), JSON.stringify({ id: 'ok' }));
@@ -339,11 +340,13 @@ test('state readers treat absent directories as empty', async () => {
 
 test('state readers report non-object JSON instead of returning it', async () => {
   const stateDir = await tmpDir('ast-store-readers-shape-');
-  for (const [subdir, extension, reader, value] of [
+  /** @type {Array<[string, string, typeof readSessions, unknown]>} */
+  const shapeCases = [
     ['sessions', '.json', readSessions, [1, 2]],
     ['archive', '.json', readArchive, null],
     ['bindings', '.bind', readBindings, 'x'],
-  ]) {
+  ];
+  for (const [subdir, extension, reader, value] of shapeCases) {
     const dir = path.join(stateDir, subdir);
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, `wrong${extension}`), JSON.stringify(value));

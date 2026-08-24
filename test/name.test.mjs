@@ -41,6 +41,12 @@ async function setupRecord(record = recordFor()) {
   return { env, store, filePath, record };
 }
 
+/**
+ * @param {(argv: string[], ctx: { env: object, adapters: Map<string, unknown>, root: string }) => Promise<number>} run
+ * @param {string[]} argv
+ * @param {object} env
+ * @param {{ now?: number }} [options]
+ */
 async function runDirect(run, argv, env, { now } = {}) {
   let stdout = '';
   let stderr = '';
