@@ -36,6 +36,24 @@ actually guarded.
 `npm install` or `bun install`, do not add a lockfile, do not create
 `node_modules/`. Enforced by `test/no-deps.test.mjs`.
 
+## Typechecking without a root `node_modules`
+
+The `types` CI job installs `typescript` and `@types/node` straight into the
+checkout, then runs `tsc --noEmit`. That is fine on a disposable CI runner,
+but running the same two commands locally leaves `node_modules/` behind and
+fails `test/no-deps.test.mjs` for the next person, or the next test run in
+this tree, whichever comes first.
+
+Run `node harness/typecheck.mjs` instead. It installs the same
+`typescript`/`@types/node` versions CI pins -- read out of
+`.github/workflows/ci.yml` rather than hardcoded, so it cannot drift from
+CI -- into a prefix under the OS temp directory, runs `tsc --noEmit` against
+this repo's `tsconfig.json` with `--typeRoots` pointed at that prefix, and
+removes the prefix afterward whether or not the check passed. It exits with
+`tsc`'s own exit code, never 0 on a failed install. Nothing under the repo
+root is ever touched; `test/no-deps.test.mjs` pins that the install prefix
+can't resolve inside the tree.
+
 ## `npm test` is bare `node --test`
 
 Node's default discovery scans the tree for `*.test.mjs`. Passing a directory

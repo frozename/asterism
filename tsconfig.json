@@ -46,6 +46,7 @@
     "harness/secret-scan.mjs",
     "harness/structural.mjs",
     "harness/type-coverage.mjs",
+    "harness/typecheck.mjs",
     "src/adapters/claude/captures.js",
     "src/adapters/claude/discover.js",
     "src/adapters/claude/hooks.js",

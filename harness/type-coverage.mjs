@@ -29,7 +29,7 @@ export function readTsconfigInclude(root = ROOT) {
   return tsconfig.include;
 }
 
-// 139 of 148 tracked files are type-checked by tsconfig.json today; the other
+// 140 of 149 tracked files are type-checked by tsconfig.json today; the other
 // 9 are named below. Twenty-four have the current tsc error that keeps each
 // one out -- either its own, or (for a file with no error of its own) the error
 // of a file it imports transitively. The remaining entry, test/archive.test.mjs,
