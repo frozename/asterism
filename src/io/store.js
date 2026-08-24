@@ -21,7 +21,7 @@ const SUPPORTED_SCHEMA_VERSION = '1';
 const CANARY_RING_CAP = 200;
 const HOOK_ERROR_LOG_CAP_BYTES = 65536;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const STATE_SUBDIRS = Object.freeze(['sessions', 'bindings', 'inbox', 'archive', 'backups', 'doctor', 'unknown', 'handoffs']);
+export const STATE_SUBDIRS = Object.freeze(['sessions', 'bindings', 'inbox', 'archive', 'backups', 'doctor', 'unknown', 'handoffs']);
 
 export function resolveStateDir(env) {
   if (typeof env.XDG_STATE_HOME === 'string' && env.XDG_STATE_HOME.length > 0) {
@@ -413,6 +413,42 @@ function retentionDays(config, key, fallback) {
   return typeof value === 'number' ? value : fallback;
 }
 
+function sessionIdentityKey(record) {
+  if (typeof record?.adapter !== 'string' || typeof record?.agent?.sessionId !== 'string') return null;
+  return `${record.adapter} ${record.agent.sessionId}`;
+}
+
+function bindingIdentityKey(record) {
+  if (typeof record?.adapter !== 'string' || typeof record?.sessionId !== 'string') return null;
+  return `${record.adapter} ${record.sessionId}`;
+}
+
+// Snapshotting sessions/ and archive/ before either mutation loop below runs
+// means a session that gets archived (renamed sessions/<id>.json ->
+// archive/<id>.json) later in this same sweep was already captured here --
+// it can never look absent from both just because it moved mid-run. Returns
+// null when either directory or any record in it can't be confidently read,
+// so the caller treats "known identities" as unreliable rather than guessing.
+async function collectKnownSessionIdentities(sessionsDir, archiveDir) {
+  const identities = new Set();
+  for (const dirPath of [sessionsDir, archiveDir]) {
+    let names;
+    try {
+      names = await readdir(dirPath);
+    } catch {
+      return null;
+    }
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      const record = await readJsonSafe(path.join(dirPath, name));
+      if (record === null) return null;
+      const identity = sessionIdentityKey(record);
+      if (identity !== null) identities.add(identity);
+    }
+  }
+  return identities;
+}
+
 /** @param {string} stateDir @param {{ now?: number, config?: { retention?: Record<string, number> } }} [options] */
 export async function sweepRetention(stateDir, { now, config = {} } = {}) {
   const archiveAfterMs = retentionDays(config, 'sessions_archive_after_dead_days', RETENTION_DEFAULTS.sessionsArchiveAfterDeadDays) * DAY_MS;
@@ -424,12 +460,16 @@ export async function sweepRetention(stateDir, { now, config = {} } = {}) {
   const archiveDir = path.join(stateDir, 'archive');
   const inboxDir = path.join(stateDir, 'inbox');
   const backupsDir = path.join(stateDir, 'backups');
+  const bindingsDir = path.join(stateDir, 'bindings');
 
   let sessionsArchived = 0;
   let archivesDeleted = 0;
   let inboxDeleted = 0;
   let backupsPruned = 0;
+  let bindingsDeleted = 0;
   let problems = 0;
+
+  const knownIdentities = await collectKnownSessionIdentities(sessionsDir, archiveDir);
 
   for (const name of await safeReaddir(sessionsDir)) {
     if (!name.endsWith('.json')) continue;
@@ -519,7 +559,29 @@ export async function sweepRetention(stateDir, { now, config = {} } = {}) {
     if ((await safeReaddir(tsDir)).length === 0) await rmdir(tsDir).catch(() => {});
   }
 
-  return Object.freeze({ sessionsArchived, archivesDeleted, inboxDeleted, backupsPruned, problems });
+  if (knownIdentities === null) {
+    // sessions/ or archive/ couldn't be fully and confidently enumerated this
+    // round (a listing failed, or a record in either failed to parse) -- we
+    // cannot prove any binding is definitively orphaned, so none are deleted.
+    problems += 1;
+  } else {
+    for (const name of await safeReaddir(bindingsDir)) {
+      if (!name.endsWith('.bind')) continue;
+      const filePath = path.join(bindingsDir, name);
+      const record = await readJsonSafe(filePath);
+      const identity = bindingIdentityKey(record);
+      if (identity === null) {
+        problems += 1;
+        continue;
+      }
+      if (!knownIdentities.has(identity)) {
+        await unlink(filePath);
+        bindingsDeleted += 1;
+      }
+    }
+  }
+
+  return Object.freeze({ sessionsArchived, archivesDeleted, inboxDeleted, backupsPruned, bindingsDeleted, problems });
 }
 
 export async function auditPermissions({ stateDir }) {
@@ -595,9 +657,8 @@ async function dirStats(dirPath) {
 }
 
 export async function checkRetentionCounts({ stateDir }) {
-  const dirs = ['sessions', 'archive', 'inbox', 'backups', 'handoffs', 'unknown'];
   const parts = [];
-  for (const dirName of dirs) {
+  for (const dirName of STATE_SUBDIRS) {
     const { count, bytes } = await dirStats(path.join(stateDir, dirName));
     parts.push(`${dirName}: ${count} files, ${bytes} bytes`);
   }

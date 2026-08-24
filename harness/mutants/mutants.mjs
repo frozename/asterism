@@ -300,6 +300,30 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/store.test.mjs']),
     why: 'an existing dead record without diedAt must be stamped at first sight rather than left migration-dependent forever',
   }),
+  Object.freeze({
+    id: 'MUT-RETENTION-COUNTS-DRIFT',
+    file: 'src/io/store.js',
+    find: `  for (const dirName of STATE_SUBDIRS) {\n    const { count, bytes } = await dirStats(path.join(stateDir, dirName));`,
+    replace: `  for (const dirName of ['sessions', 'archive', 'inbox', 'backups', 'handoffs', 'unknown']) {\n    const { count, bytes } = await dirStats(path.join(stateDir, dirName));`,
+    claimedBy: Object.freeze(['test/store.test.mjs']),
+    why: 'the retention report must be derived from STATE_SUBDIRS so a new state subdirectory can never silently go unreported again',
+  }),
+  Object.freeze({
+    id: 'MUT-BINDING-SWEEP-NEVER-DELETES',
+    file: 'src/io/store.js',
+    find: `      if (!knownIdentities.has(identity)) {`,
+    replace: `      if (false) {`,
+    claimedBy: Object.freeze(['test/store.test.mjs']),
+    why: 'a binding whose session is gone from both sessions/ and archive/ must actually be removed, or bindings/ grows without bound forever',
+  }),
+  Object.freeze({
+    id: 'MUT-BINDING-SWEEP-FAIL-OPEN',
+    file: 'src/io/store.js',
+    find: `  if (knownIdentities === null) {`,
+    replace: `  if (false) {`,
+    claimedBy: Object.freeze(['test/store.test.mjs']),
+    why: 'when sessions/ or archive/ cannot be confidently enumerated, the sweep must delete nothing rather than guess a binding is orphaned -- fail closed, not fail open',
+  }),
 
   // --- T5 mutants
   Object.freeze({

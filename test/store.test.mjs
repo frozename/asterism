@@ -26,6 +26,7 @@ import {
   resolveConfigDir,
   resolveStateDir,
   RETENTION_DEFAULTS,
+  STATE_SUBDIRS,
   sweepRetention,
   writeJsonAtomic,
   writeTextAtomic,
@@ -87,6 +88,107 @@ test('sweepRetention stamps a migrated dead record before aging it', async () =>
   const secondCounts = await sweepRetention(store.stateDir, { now: now + 8 * DAY_MS, config: {} });
   assert.equal(secondCounts.sessionsArchived, 1);
   assert.equal(existsSync(path.join(store.stateDir, 'archive', `${id}.json`)), true);
+});
+
+// ---- sweepRetention: orphaned bindings ----
+
+test('sweepRetention deletes a binding whose (adapter, sessionId) matches no session in sessions/ or archive/', async () => {
+  const home = await realpath(await tmpDir('ast-store-binding-orphan-'));
+  const store = await openStore({ env: { HOME: home, XDG_STATE_HOME: home } });
+  const now = Date.UTC(2026, 7, 24);
+  const bindingUlid = '01ARZ3NDEKTSV4RRFFQ69G5FB0';
+
+  await store.writeBinding(bindingUlid, {
+    sessionId: 'no-such-session',
+    adapter: 'fake',
+    by: 'HumanAsserted',
+    target: '%3',
+    at: new Date(now).toISOString(),
+  });
+
+  const counts = await sweepRetention(store.stateDir, { now, config: {} });
+
+  assert.equal(counts.bindingsDeleted, 1);
+  assert.equal(counts.problems, 0);
+  assert.equal(existsSync(path.join(store.stateDir, 'bindings', `${bindingUlid}.bind`)), false);
+});
+
+test('sweepRetention keeps a binding whose session is still present in sessions/ (the binding filename is a different ulid than the session id)', async () => {
+  const home = await realpath(await tmpDir('ast-store-binding-live-'));
+  const store = await openStore({ env: { HOME: home, XDG_STATE_HOME: home } });
+  const now = Date.UTC(2026, 7, 24);
+  const sessionUlid = '01ARZ3NDEKTSV4RRFFQ69G5FB1';
+  const bindingUlid = '01ARZ3NDEKTSV4RRFFQ69G5FB2';
+  const { records } = await reconcile(
+    [{ source: 'contract', adapter: 'fake', at: now, fields: { sessionId: 'live-session', status: 'busy' } }],
+    { now, mint: () => sessionUlid },
+  );
+  await store.writeSession(sessionUlid, records[0]);
+
+  await store.writeBinding(bindingUlid, {
+    sessionId: 'live-session',
+    adapter: 'fake',
+    by: 'HumanAsserted',
+    target: '%3',
+    at: new Date(now).toISOString(),
+  });
+
+  const counts = await sweepRetention(store.stateDir, { now, config: {} });
+
+  assert.equal(counts.bindingsDeleted, 0);
+  assert.equal(existsSync(path.join(store.stateDir, 'bindings', `${bindingUlid}.bind`)), true);
+});
+
+test('sweepRetention keeps a binding whose session is present in archive/', async () => {
+  const home = await realpath(await tmpDir('ast-store-binding-archived-'));
+  const store = await openStore({ env: { HOME: home, XDG_STATE_HOME: home } });
+  const now = Date.UTC(2026, 7, 24);
+  const sessionUlid = '01ARZ3NDEKTSV4RRFFQ69G5FB3';
+  const bindingUlid = '01ARZ3NDEKTSV4RRFFQ69G5FB4';
+  const { records } = await reconcile(
+    [{ source: 'contract', adapter: 'fake', at: now, fields: { sessionId: 'archived-session', status: 'dead' } }],
+    { now, mint: () => sessionUlid },
+  );
+  await store.writeSession(sessionUlid, records[0]);
+  await store.archiveSession(sessionUlid, records[0]);
+  assert.equal(existsSync(path.join(store.stateDir, 'sessions', `${sessionUlid}.json`)), false);
+  assert.equal(existsSync(path.join(store.stateDir, 'archive', `${sessionUlid}.json`)), true);
+
+  await store.writeBinding(bindingUlid, {
+    sessionId: 'archived-session',
+    adapter: 'fake',
+    by: 'HumanAsserted',
+    target: '%3',
+    at: new Date(now).toISOString(),
+  });
+
+  const counts = await sweepRetention(store.stateDir, { now, config: {} });
+
+  assert.equal(counts.bindingsDeleted, 0);
+  assert.equal(existsSync(path.join(store.stateDir, 'bindings', `${bindingUlid}.bind`)), true);
+});
+
+test('sweepRetention leaves every binding alone when a sessions/ record fails to parse -- an unreadable record is not proof of absence', async () => {
+  const home = await realpath(await tmpDir('ast-store-binding-unreadable-'));
+  const store = await openStore({ env: { HOME: home, XDG_STATE_HOME: home } });
+  const now = Date.UTC(2026, 7, 24);
+  const bindingUlid = '01ARZ3NDEKTSV4RRFFQ69G5FB5';
+
+  writeFileSync(path.join(store.stateDir, 'sessions', 'broken.json'), '{ not json');
+
+  await store.writeBinding(bindingUlid, {
+    sessionId: 'would-otherwise-look-orphaned',
+    adapter: 'fake',
+    by: 'HumanAsserted',
+    target: '%3',
+    at: new Date(now).toISOString(),
+  });
+
+  const counts = await sweepRetention(store.stateDir, { now, config: {} });
+
+  assert.equal(counts.bindingsDeleted, 0);
+  assert.ok(counts.problems >= 1, `expected at least one problem, got ${counts.problems}`);
+  assert.equal(existsSync(path.join(store.stateDir, 'bindings', `${bindingUlid}.bind`)), true);
 });
 
 test('writeLayout refuses to replace more entries and preserves the prior bytes', async () => {
@@ -510,6 +612,14 @@ async function runMegaScript() {
 
       const counts = await sweepRetention(stateDir, { now, config: {} });
 
+      // The three writeBinding fixtures above ('%12','$0','@3') have no
+      // sessionId/adapter fields -- malformed, not orphaned -- and sessions/
+      // holds broken.json, so the identity snapshot is untrustworthy this
+      // round. Both must survive: fail-closed means guessing never deletes.
+      const malformedBindingsSurvive = ['ID12', 'ID0', 'ID3'].every((ulid) =>
+        existsSync(path.join(stateDir, 'bindings', ulid + '.bind')),
+      );
+
       result.sweepRetention = {
         counts,
         deadEightGone: !existsSync(path.join(stateDir, 'sessions', 'dead-8d.json')),
@@ -523,6 +633,7 @@ async function runMegaScript() {
         freshInboxStays: existsSync(freshInboxPath),
         handoffsSurvives: existsSync(handoffsPath),
         backupTsDirCount: readdirSync(path.join(stateDir, 'backups')).length,
+        malformedBindingsSurvive,
       };
     }
 
@@ -700,7 +811,8 @@ test('sweepRetention: status-gated archive/delete, inbox TTL, backup pruning, pr
     archivesDeleted: 1,
     inboxDeleted: 1,
     backupsPruned: 2,
-    problems: 1,
+    bindingsDeleted: 0,
+    problems: 2,
   });
   assert.equal(result.deadEightGone, true);
   assert.equal(result.deadEightArchived, true);
@@ -713,6 +825,11 @@ test('sweepRetention: status-gated archive/delete, inbox TTL, backup pruning, pr
   assert.equal(result.freshInboxStays, true);
   assert.equal(result.handoffsSurvives, true, 'handoffs/ must never be swept, even when older than everything else that was swept this run');
   assert.equal(result.backupTsDirCount, 10);
+  assert.equal(
+    result.malformedBindingsSurvive,
+    true,
+    'a binding with no sessionId/adapter, or any binding at all when sessions/ holds an unparseable record, must never be guessed orphaned',
+  );
 });
 
 // ---- config ----
@@ -778,6 +895,15 @@ test('checkRetentionCounts: report-only pass carrying per-directory counts and b
   assert.equal(result.status, 'pass');
   assert.ok(result.detail.includes('sessions:'), result.detail);
   assert.ok(result.detail.includes('handoffs:'), result.detail);
+});
+
+test('checkRetentionCounts: every STATE_SUBDIRS entry is reported, so a future subdirectory cannot silently go unreported', async () => {
+  const root = await tmpDir('ast-store-retentioncounts-full-');
+  const result = await checkRetentionCounts({ stateDir: root });
+  assert.equal(result.status, 'pass');
+  for (const dirName of STATE_SUBDIRS) {
+    assert.ok(result.detail.includes(`${dirName}:`), `expected "${dirName}:" in detail, got: ${result.detail}`);
+  }
 });
 
 test('checkCanaryUnknownFields: at = now - 1h warns while at = now - 25h passes; an unparseable canary fails', async () => {
