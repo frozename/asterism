@@ -8,6 +8,22 @@ export const FORMAT_REJECT = /[#;$\n\r\x00-\x1f]/;
 export const LIST_PANES_FORMAT = '#{pane_id}|#{pane_pid}|#{session_id}|#{window_id}|#{pane_dead}|#{pane_mode}|#{@asterism_sid}';
 export const LIST_CLIENTS_FORMAT = '#{client_name}|#{session_id}|#{client_activity}';
 export const NEW_WINDOW_FORMAT = '#{pane_id}';
+// tmux has no server-wide pane-count format variable (checked: man tmux's
+// FORMATS section defines no "server_panes", and `#{server_panes}` probes as
+// empty against a live 3.7c server) -- so the trustworthy count comes from a
+// second listing that carries only a tmux-generated field. #{pane_id} can
+// never contain the caller-controlled bytes that make LIST_PANES_FORMAT's
+// trailing #{@asterism_sid} forgeable, so its line count is a count tmux
+// itself vouches for.
+export const PANE_ID_ONLY_FORMAT = '#{pane_id}';
+// Two tmux calls are not atomic: a pane genuinely created or destroyed
+// between the count probe and the main listing produces the same
+// count-mismatch shape as a forged row, and refusing on that would make
+// every real caller (ast go, ast bind) intermittently fail. A few immediate
+// retries tell the two apart -- a real race resolves once nothing is
+// changing mid-check, while an injected extra row is still there next time
+// because the attacker's -F payload does not go away.
+const PANE_COUNT_MAX_ATTEMPTS = 3;
 
 /**
  * @typedef {{
@@ -95,10 +111,38 @@ export async function newWindow({ cwd, command = [], detached = true, socketPath
   return paneId;
 }
 
+function countTmuxGeneratedLines(text) {
+  return String(text).split('\n').filter((line, index, all) => !(line.length === 0 && index === all.length - 1)).length;
+}
+
+// paneCount stays an explicit parameter so tests can pin a listing to a
+// known-bad count without a second subprocess; every production caller
+// leaves it unset and gets the trustworthy count derived here so the guard
+// in parseListPanes can never be forgotten at a call site.
 /** @param {Partial<ExecTmuxOptions> & { paneCount?: number }} [options] */
 export async function listPanes({ paneCount, socketPath, env, execute, command } = {}) {
-  const result = await execTmux(['list-panes', '-a', '-F', LIST_PANES_FORMAT], { socketPath, env, execute, command });
-  return parseListPanes(result.stdout.toString('utf8'), { paneCount });
+  if (typeof paneCount === 'number') {
+    const result = await execTmux(['list-panes', '-a', '-F', LIST_PANES_FORMAT], { socketPath, env, execute, command });
+    return parseListPanes(result.stdout.toString('utf8'), { paneCount });
+  }
+
+  let outcome;
+  for (let attempt = 0; attempt < PANE_COUNT_MAX_ATTEMPTS; attempt += 1) {
+    const counted = await execTmux(['list-panes', '-a', '-F', PANE_ID_ONLY_FORMAT], { socketPath, env, execute, command });
+    const trustedCount = countTmuxGeneratedLines(counted.stdout.toString('utf8'));
+    const listed = await execTmux(['list-panes', '-a', '-F', LIST_PANES_FORMAT], { socketPath, env, execute, command });
+    const listedText = listed.stdout.toString('utf8');
+    outcome = parseListPanes(listedText, { paneCount: trustedCount });
+    if (outcome.ok === true) return outcome;
+    // Only a genuine count disagreement is worth retrying -- a race resolves
+    // once the two counts converge. A rejection with matching counts (a bad
+    // field count, a malformed pane id) is a deterministic parse defect that
+    // retrying cannot fix, so return it immediately instead of burning the
+    // rest of the retry budget on a listing that will reject the same way
+    // every time.
+    if (countTmuxGeneratedLines(listedText) === trustedCount) return outcome;
+  }
+  return outcome;
 }
 
 /** @param {Partial<ExecTmuxOptions>} [opts] */

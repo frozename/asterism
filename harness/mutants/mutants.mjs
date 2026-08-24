@@ -1381,4 +1381,14 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/procexec.test.mjs']),
     why: 'explicit input bytes must be written to child stdin and the pipe must close',
   }),
+
+  // --- T19 mutants
+  Object.freeze({
+    id: 'MUT-LISTPANES-DISCARDS-TRUSTED-COUNT',
+    file: 'src/io/tmuxexec.js',
+    find: `    outcome = parseListPanes(listedText, { paneCount: trustedCount });`,
+    replace: `    outcome = parseListPanes(listedText, { paneCount: undefined });`,
+    claimedBy: Object.freeze(['test/tmuxexec.test.mjs']),
+    why: 'no production call site ever passes paneCount itself, so the guard is only armed if listPanes forwards the trustworthy count it just derived -- discarding it silently reopens the embedded-newline forgery the guard exists to catch',
+  }),
 ]);

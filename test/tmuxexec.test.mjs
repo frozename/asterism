@@ -9,9 +9,11 @@ import {
   attachSessionArgv,
   attachSessionForeground,
   execTmux,
+  LIST_PANES_FORMAT,
   listPanes,
   NEW_WINDOW_FORMAT,
   newWindow,
+  PANE_ID_ONLY_FORMAT,
   setUserOption,
   switchClient,
   TARGET_ID,
@@ -90,10 +92,88 @@ test('listPanes: a real shim spawn logs -u/-S/socket and parses canned 7-field r
   const rejected = await listPanes({
     socketPath: 'irrelevant',
     env: fakeEnv(),
+    // paneCount omitted: listPanes derives it itself, one extra call, so a
+    // single-canned-response fake sees the same 6-field text from both the
+    // trusted count probe and the main listing -- the counts agree (1 line
+    // each), so this still exercises the deeper per-row field-count guard.
     execute: fakeExecute(calls, { code: 0, stdout: Buffer.from('%0|100|$0|@0|0|\n'), stderr: Buffer.alloc(0) }), // 6 fields, one short of 7
   });
   assert.equal(rejected.ok, false);
+  assert.equal(calls.length, 2);
+});
+
+function formatArg(argv) {
+  const index = argv.indexOf('-F');
+  return index === -1 ? undefined : argv[index + 1];
+}
+
+test('listPanes: paneCount omitted derives a trustworthy count from a second #{pane_id}-only listing and rejects a forged embedded-newline row', async () => {
+  const calls = [];
+  // 1 real pane; the sid field carries an embedded newline plus a whole
+  // second well-formed 7-field row, exactly the injection tmuxparse.js's
+  // guard comment warns about -- both lines independently pass the 7-field
+  // and pane-id-shape checks, so only a trustworthy row count catches it.
+  const forged = '%0|100|$0|@0|0||evil\n%1|999|$0|@0|0|x|y\n';
+  const execute = async (argv) => {
+    calls.push(argv);
+    if (formatArg(argv) === PANE_ID_ONLY_FORMAT) {
+      return { code: 0, stdout: Buffer.from('%0\n'), stderr: Buffer.alloc(0) };
+    }
+    return { code: 0, stdout: Buffer.from(forged), stderr: Buffer.alloc(0) };
+  };
+
+  const result = await listPanes({ socketPath: 'irrelevant', env: fakeEnv(), execute });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /2/);
+  assert.match(result.reason, /1/);
+  // Bounded retry: the forged row persists on every attempt (unlike a real
+  // race, which resolves), so all 3 rounds run and reject rather than hang.
+  assert.equal(calls.length, 6);
+});
+
+test('listPanes: a legitimate multi-pane listing with paneCount omitted still parses (control -- the armed guard must not reject everything)', async () => {
+  const calls = [];
+  const execute = async (argv) => {
+    calls.push(argv);
+    if (formatArg(argv) === PANE_ID_ONLY_FORMAT) {
+      return { code: 0, stdout: Buffer.from('%0\n%1\n'), stderr: Buffer.alloc(0) };
+    }
+    return { code: 0, stdout: Buffer.from('%0|100|$0|@0|0||\n%1|101|$0|@0|0||\n'), stderr: Buffer.alloc(0) };
+  };
+
+  const result = await listPanes({ socketPath: 'irrelevant', env: fakeEnv(), execute });
+  assert.equal(result.ok, true, result.ok ? undefined : result.reason);
+  assert.equal(result.rows.length, 2);
+  assert.equal(calls.length, 2);
+});
+
+test('listPanes: a transient pane-count race (a pane created between the two calls) self-resolves on retry rather than refusing', async () => {
+  const calls = [];
+  let settled = false;
+  const execute = async (argv) => {
+    calls.push(argv);
+    if (formatArg(argv) === PANE_ID_ONLY_FORMAT) {
+      const stdout = settled ? '%0\n%1\n' : '%0\n'; // first probe is stale: pane %1 not created yet
+      return { code: 0, stdout: Buffer.from(stdout), stderr: Buffer.alloc(0) };
+    }
+    settled = true; // by the time the main listing runs, the new pane exists
+    return { code: 0, stdout: Buffer.from('%0|100|$0|@0|0||\n%1|101|$0|@0|0||\n'), stderr: Buffer.alloc(0) };
+  };
+
+  const result = await listPanes({ socketPath: 'irrelevant', env: fakeEnv(), execute });
+  assert.equal(result.ok, true, result.ok ? undefined : result.reason);
+  assert.equal(result.rows.length, 2);
+  assert.equal(calls.length, 4); // round 1 mismatches (1 vs 2) and retries; round 2's probe now sees both panes
+});
+
+test('listPanes: an explicit paneCount (the test override) skips the trusted-count probe entirely', async () => {
+  const calls = [];
+  const execute = fakeExecute(calls, { code: 0, stdout: Buffer.from('%0|100|$0|@0|0||\n'), stderr: Buffer.alloc(0) });
+
+  const result = await listPanes({ socketPath: 'irrelevant', env: fakeEnv(), paneCount: 1, execute });
+  assert.equal(result.ok, true, result.ok ? undefined : result.reason);
   assert.equal(calls.length, 1);
+  assert.equal(formatArg(calls[0]), LIST_PANES_FORMAT);
 });
 
 test('target validation: "main", "sess:1.2", "%12extra" are rejected before any spawn; "%12"/"$0"/"@3" pass TARGET_ID and a real call spawns', async () => {
