@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 import { parseToml } from '../src/core/toml.js';
+import { reconcile } from '../src/core/reconcile.js';
 import {
   auditPermissions,
   checkAttentionStuck,
@@ -25,6 +26,7 @@ import {
   resolveConfigDir,
   resolveStateDir,
   RETENTION_DEFAULTS,
+  sweepRetention,
   writeJsonAtomic,
   writeTextAtomic,
 } from '../src/io/store.js';
@@ -36,6 +38,25 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 async function tmpDir(prefix) {
   return mkdtemp(path.join(os.tmpdir(), prefix));
 }
+
+test('sweepRetention archives an old dead record in the shape reconcile produces', async () => {
+  const home = await realpath(await tmpDir('ast-store-retention-real-record-'));
+  const store = await openStore({ env: { HOME: home, XDG_STATE_HOME: home } });
+  const now = Date.UTC(2026, 7, 24);
+  const lastSeen = now - 8 * DAY_MS;
+  const id = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+  const { records } = await reconcile(
+    [{ source: 'contract', adapter: 'fake', at: lastSeen, fields: { sessionId: 'dead-session', status: 'dead' } }],
+    { now, mint: () => id },
+  );
+
+  await store.writeSession(id, records[0]);
+  const counts = await sweepRetention(store.stateDir, { now, config: {} });
+
+  assert.equal(counts.sessionsArchived, 1);
+  assert.equal(existsSync(path.join(store.stateDir, 'sessions', `${id}.json`)), false);
+  assert.equal(existsSync(path.join(store.stateDir, 'archive', `${id}.json`)), true);
+});
 
 test('writeLayout refuses to replace more entries and preserves the prior bytes', async () => {
   const home = await tmpDir('ast-store-layout-shrink-');
@@ -423,13 +444,13 @@ async function runMegaScript() {
         writeFileSync(path.join(stateDir, 'archive', name), JSON.stringify(obj));
       }
 
-      writeSessionRaw('dead-8d.json', { status: 'dead', statusUpdatedAt: now - 8 * dayMs });
-      writeSessionRaw('dead-2d.json', { status: 'dead', statusUpdatedAt: now - 2 * dayMs });
-      writeSessionRaw('busy-400d.json', { status: 'busy', statusUpdatedAt: now - 400 * dayMs });
-      writeSessionRaw('no-updated.json', { status: 'dead' });
+      writeSessionRaw('dead-8d.json', { observed: { status: 'dead', lastSeen: now - 8 * dayMs } });
+      writeSessionRaw('dead-2d.json', { observed: { status: 'dead', lastSeen: now - 2 * dayMs } });
+      writeSessionRaw('busy-400d.json', { observed: { status: 'busy', lastSeen: now - 400 * dayMs } });
+      writeSessionRaw('no-updated.json', { observed: { status: 'dead' } });
 
-      writeArchiveRaw('old-91d.json', { statusUpdatedAt: now - 91 * dayMs });
-      writeArchiveRaw('young-10d.json', { statusUpdatedAt: now - 10 * dayMs });
+      writeArchiveRaw('old-91d.json', { observed: { lastSeen: now - 91 * dayMs } });
+      writeArchiveRaw('young-10d.json', { observed: { lastSeen: now - 10 * dayMs } });
 
       const inboxSessionDir = path.join(stateDir, 'inbox', 'sess1');
       mkdirSync(inboxSessionDir, { recursive: true, mode: 0o700 });

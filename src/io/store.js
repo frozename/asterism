@@ -423,9 +423,9 @@ export async function sweepRetention(stateDir, { now, config = {} } = {}) {
       problems += 1;
       continue;
     }
-    if (record.status !== 'dead') continue;
+    if (record.observed?.status !== 'dead') continue;
 
-    const updatedAtMs = parseTimestamp(record.statusUpdatedAt);
+    const updatedAtMs = parseTimestamp(record.observed?.lastSeen);
     if (updatedAtMs === null) {
       problems += 1;
       continue;
@@ -444,7 +444,7 @@ export async function sweepRetention(stateDir, { now, config = {} } = {}) {
       problems += 1;
       continue;
     }
-    const updatedAtMs = parseTimestamp(record.statusUpdatedAt);
+    const updatedAtMs = parseTimestamp(record.observed?.lastSeen);
     if (updatedAtMs === null) {
       problems += 1;
       continue;

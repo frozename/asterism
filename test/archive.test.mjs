@@ -185,6 +185,7 @@ test('archive round-trip is hidden from plain ls and visible as non-waiting unde
   const box = await setupStoredRecord();
   box.record.observed.status = 'waiting';
   box.record.observed.waitingFor = 'approval';
+  box.record.observed.lastSeen = Date.now();
   await box.store.writeSession(box.record.id, box.record);
   const env = {
     HOME: path.dirname(path.dirname(box.store.stateDir)),
