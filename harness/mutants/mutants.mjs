@@ -1259,6 +1259,56 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/lint.test.mjs']),
     why: 'discarding every collected violation lets a process.env read, a banned Node builtin import, a bare package import, or a relative import that escapes src/core/ land in the pure domain layer unnoticed',
   }),
+  Object.freeze({
+    id: 'MUT-LINT-ADAPTER-BOUNDARY-DETECTION-DISARMED',
+    file: 'harness/lint/rules/adapter-boundary.mjs',
+    find: `    const ownMatch = file.file.match(ADAPTER_DIR_PATTERN);
+    if (!ownMatch) continue;`,
+    replace: `    const ownMatch = file.file.match(ADAPTER_DIR_PATTERN);
+    if (true) continue;`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'skipping every adapter file lets a cross-adapter import or a registry import land unnoticed',
+  }),
+  Object.freeze({
+    id: 'MUT-LINT-CHILD-PROCESS-CHOKEPOINT-DETECTION-EMPTY',
+    file: 'harness/lint/rules/child-process-chokepoint.mjs',
+    find: `      if (!CHILD_PROCESS_SPECIFIERS.includes(specifier)) continue;`,
+    replace: `      if (true) continue;`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'skipping every child_process specifier match lets an outside importer reach child_process unnoticed',
+  }),
+  Object.freeze({
+    id: 'MUT-LINT-PANEIO-CONTAINMENT-DETECTION-DISARMED',
+    file: 'harness/lint/rules/paneio-containment.mjs',
+    find: `      if (!allowedDir && specifier.endsWith('paneio.js')) {`,
+    replace: `      if (false) {`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'disarming the containment check lets a file outside src/io/ or src/cli/verbs/ import paneio.js unnoticed',
+  }),
+  Object.freeze({
+    id: 'MUT-LINT-PANEIO-TRIPWIRE-DETECTION-DISARMED',
+    file: 'harness/lint/rules/paneio-containment.mjs',
+    find: `      if (seamOrPenumbra && (specifier.endsWith('paneio.js') || specifier.endsWith('tmuxexec.js'))) {`,
+    replace: `      if (false) {`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'disarming the forward tripwire lets a seam/penumbra path import paneio.js or tmuxexec.js unnoticed',
+  }),
+  Object.freeze({
+    id: 'MUT-LINT-NO-TEST-HARNESS-IMPORTS-DETECTION-DISARMED',
+    file: 'harness/lint/rules/no-test-harness-imports.mjs',
+    find: `      if (resolved.startsWith('test/') || resolved.startsWith('harness/')) {`,
+    replace: `      if (false) {`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'disarming the test/harness destination check lets product code depend on test/ or harness/ unnoticed',
+  }),
+  Object.freeze({
+    id: 'MUT-LINT-HOOK-KEYPRESS-BAN-DETECTION-DISARMED',
+    file: 'harness/lint/rules/hook-keypress-ban.mjs',
+    find: `      if (!(specifier.endsWith('tmuxexec.js') || specifier.endsWith('paneio.js'))) continue;`,
+    replace: `      if (true) continue;`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'skipping every keypress-path specifier match lets the hook binary or src/hook/** import tmuxexec.js or paneio.js unnoticed',
+  }),
 
   // --- Architecture documentation mutant
   Object.freeze({

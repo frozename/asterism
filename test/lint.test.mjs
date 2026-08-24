@@ -30,6 +30,10 @@ import {
   isOutOfScope as stringQuarantineIsOutOfScope,
 } from '../harness/lint/rules/string-quarantine.mjs';
 import { BANNED_BUILTINS as PURITY_BANNED_BUILTINS } from '../harness/lint/rules/purity.mjs';
+import {
+  CHILD_PROCESS_SPECIFIERS,
+  ALLOWED_CHILD_PROCESS_IMPORTERS,
+} from '../harness/lint/rules/child-process-chokepoint.mjs';
 import { walkFiles } from '../harness/structural.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -45,6 +49,11 @@ const EXPECTED_RULE_IDS = [
   'exec-ban',
   'string-quarantine',
   'purity',
+  'adapter-boundary',
+  'child-process-chokepoint',
+  'paneio-containment',
+  'no-test-harness-imports',
+  'hook-keypress-ban',
 ];
 
 function toRepoRelative(absPath) {
@@ -80,7 +89,7 @@ function assertViolationShape(violation, ruleId) {
   assert.ok(violation.message.length > 0);
 }
 
-test('registry exposes exactly eleven named rules with unique stable ids', () => {
+test('registry exposes exactly sixteen named rules with unique stable ids', () => {
   assert.deepEqual(
     RULES.map((rule) => rule.id),
     EXPECTED_RULE_IDS,
@@ -818,4 +827,182 @@ test('control: purity flags a node:fs import, process.env, a bare package specif
     },
   ]);
   assert.deepEqual(clean, []);
+});
+
+test('adapter-boundary sweep visits real adapter files', () => {
+  const rule = ruleById('adapter-boundary');
+  const scannedRel = filesFor(rule).map((file) => file.file);
+  assert.ok(scannedRel.length > 0, 'src/adapters/ sweep found zero files; adapter-boundary cannot be checked');
+  assert.ok(scannedRel.includes('src/adapters/index.js'), 'sweep did not visit src/adapters/index.js');
+});
+
+test('control: adapter-boundary flags a cross-adapter import and a registry import; a same-adapter import passes', () => {
+  const rule = ruleById('adapter-boundary');
+
+  const crossAdapter = rule.check([
+    { file: 'src/adapters/alpha/index.js', source: "import other from '../beta/index.js';\n" },
+  ]);
+  assert.equal(crossAdapter.length, 1, 'cross-adapter import was not flagged');
+  assertViolationShape(crossAdapter[0], rule.id);
+
+  const registryImport = rule.check([
+    { file: 'src/adapters/alpha/index.js', source: "import { adapters } from '../index.js';\n" },
+  ]);
+  assert.equal(registryImport.length, 1, 'adapter importing the registry was not flagged');
+  assertViolationShape(registryImport[0], rule.id);
+
+  const sameAdapter = rule.check([
+    { file: 'src/adapters/alpha/index.js', source: "import { helper } from './helper.js';\n" },
+  ]);
+  assert.deepEqual(sameAdapter, []);
+});
+
+test('child-process-chokepoint CHILD_PROCESS_SPECIFIERS and ALLOWED_CHILD_PROCESS_IMPORTERS are pinned', () => {
+  assert.deepEqual(CHILD_PROCESS_SPECIFIERS, ['child_process', 'node:child_process']);
+  assert.deepEqual(ALLOWED_CHILD_PROCESS_IMPORTERS, ['src/io/procexec.js', 'src/io/tmuxexec.js']);
+});
+
+test('child-process-chokepoint sweep visits bin/ast and src/io/procexec.js', () => {
+  const rule = ruleById('child-process-chokepoint');
+  const scannedRel = filesFor(rule).map((file) => file.file);
+  assert.ok(scannedRel.includes('bin/ast'), 'sweep did not visit bin/ast');
+  assert.ok(scannedRel.includes('src/io/procexec.js'), 'sweep did not visit src/io/procexec.js');
+});
+
+test('control: child-process-chokepoint flags an outside importer; a chokepoint and a non-cp import pass', () => {
+  const rule = ruleById('child-process-chokepoint');
+
+  const outsideImporter = rule.check([
+    { file: 'src/cli/verbs/version.js', source: "import { execFile } from 'node:child_process';\n" },
+  ]);
+  assert.equal(outsideImporter.length, 1, 'outside importer of child_process was not flagged');
+  assertViolationShape(outsideImporter[0], rule.id);
+
+  const chokepoint = rule.check([
+    { file: 'src/io/procexec.js', source: "import { execFile } from 'node:child_process';\n" },
+  ]);
+  assert.deepEqual(chokepoint, []);
+
+  const clean = rule.check([{ file: 'src/core/enums.js', source: "import path from 'node:path';\n" }]);
+  assert.deepEqual(clean, []);
+});
+
+test('paneio-containment sweep visits real files under src/io/ and src/hook/ (paneio.js itself does not exist yet)', () => {
+  const rule = ruleById('paneio-containment');
+  const scannedRel = filesFor(rule).map((file) => file.file);
+  assert.ok(scannedRel.includes('src/io/tmuxexec.js'), 'sweep did not visit src/io/tmuxexec.js');
+  assert.ok(scannedRel.includes('src/hook/index.js'), 'sweep did not visit src/hook/index.js');
+});
+
+test('control: paneio-containment flags an outside importer of paneio.js; io/ and cli/verbs/ importers pass', () => {
+  const rule = ruleById('paneio-containment');
+
+  const outsideImporter = rule.check([
+    { file: 'src/core/thing.js', source: "import { write } from '../io/paneio.js';\n" },
+  ]);
+  assert.equal(outsideImporter.length, 1, 'outside importer of paneio.js was not flagged');
+  assertViolationShape(outsideImporter[0], rule.id);
+
+  const ioImporter = rule.check([{ file: 'src/io/paneio.js', source: "import { helper } from './helper.js';\n" }]);
+  assert.deepEqual(ioImporter, []);
+
+  const verbImporter = rule.check([
+    { file: 'src/cli/verbs/paint.js', source: "import { write } from '../../io/paneio.js';\n" },
+  ]);
+  assert.deepEqual(verbImporter, []);
+});
+
+test('control: paneio-containment forward tripwire flags a seam/penumbra path importing paneio.js or tmuxexec.js; a clean import passes', () => {
+  const rule = ruleById('paneio-containment');
+
+  const seamOffender = rule.check([
+    { file: 'src/io/seam-writer.js', source: "import { write } from './paneio.js';\n" },
+  ]);
+  assert.equal(seamOffender.length, 1, 'a seam path importing paneio.js was not flagged');
+  assertViolationShape(seamOffender[0], rule.id);
+
+  const penumbraOffender = rule.check([
+    { file: 'src/penumbra/bridge.js', source: "import { spawn } from './tmuxexec.js';\n" },
+  ]);
+  assert.equal(penumbraOffender.length, 1, 'a penumbra path importing tmuxexec.js was not flagged');
+  assertViolationShape(penumbraOffender[0], rule.id);
+
+  const clean = rule.check([{ file: 'src/io/seam-writer.js', source: "import path from 'node:path';\n" }]);
+  assert.deepEqual(clean, []);
+});
+
+test('no-test-harness-imports sweep visits src/ and bin/ast', () => {
+  const rule = ruleById('no-test-harness-imports');
+  const scannedRel = filesFor(rule).map((file) => file.file);
+  assert.ok(scannedRel.includes('bin/ast'), 'sweep did not visit bin/ast');
+  assert.ok(scannedRel.some((file) => file.startsWith('src/')), 'sweep did not visit src/');
+});
+
+test('control: no-test-harness-imports flags an import from test/ or harness/; a clean import passes', () => {
+  const rule = ruleById('no-test-harness-imports');
+
+  const testImporter = rule.check([
+    { file: 'src/core/thing.js', source: "import { helper } from '../../test/helper.js';\n" },
+  ]);
+  assert.equal(testImporter.length, 1, 'import from test/ was not flagged');
+  assertViolationShape(testImporter[0], rule.id);
+
+  const harnessImporter = rule.check([
+    { file: 'bin/ast', source: "import { walk } from '../harness/structural.mjs';\n" },
+  ]);
+  assert.equal(harnessImporter.length, 1, 'import from harness/ was not flagged');
+  assertViolationShape(harnessImporter[0], rule.id);
+
+  const clean = rule.check([{ file: 'src/core/thing.js', source: "import path from 'node:path';\n" }]);
+  assert.deepEqual(clean, []);
+});
+
+test('hook-keypress-ban sweep visits bin/ast-hook and src/hook/', () => {
+  const rule = ruleById('hook-keypress-ban');
+  const scannedRel = filesFor(rule).map((file) => file.file);
+  assert.ok(scannedRel.includes('bin/ast-hook'), 'sweep did not visit bin/ast-hook');
+  assert.ok(scannedRel.some((file) => file.startsWith('src/hook/')), 'sweep did not visit src/hook/');
+});
+
+test('control: hook-keypress-ban flags tmuxexec and paneio imports; a clean import passes', () => {
+  const rule = ruleById('hook-keypress-ban');
+
+  const tmuxexecOffender = rule.check([
+    { file: 'src/hook/events/evil.js', source: "import { listPanes } from '../../io/tmuxexec.js';\n" },
+  ]);
+  assert.equal(tmuxexecOffender.length, 1, 'a hook path importing tmuxexec.js was not flagged');
+  assertViolationShape(tmuxexecOffender[0], rule.id);
+
+  const paneioOffender = rule.check([
+    { file: 'bin/ast-hook', source: "import { write } from '../src/io/paneio.js';\n" },
+  ]);
+  assert.equal(paneioOffender.length, 1, 'the hook binary importing paneio.js was not flagged');
+  assertViolationShape(paneioOffender[0], rule.id);
+
+  const clean = rule.check([{ file: 'src/hook/index.js', source: "import path from 'node:path';\n" }]);
+  assert.deepEqual(clean, []);
+});
+
+test('control: hook-keypress-ban stays scoped even if handed an out-of-scope file', () => {
+  const rule = ruleById('hook-keypress-ban');
+
+  // bin/ast is allowed to reach a keypress path; only bin/ast-hook and
+  // src/hook/** are banned. The rule must decide that itself rather than
+  // relying on its declared paths, so widening paths cannot create a false
+  // positive here.
+  const outOfScope = rule.check([
+    { file: 'src/core/render.js', source: "import { execTmux } from '../io/tmuxexec.js';\n" },
+  ]);
+  assert.deepEqual(outOfScope, [], 'a file outside the hook paths must never be flagged');
+
+  const astBinary = rule.check([
+    { file: 'bin/ast', source: "import { execTmux } from '../src/io/tmuxexec.js';\n" },
+  ]);
+  assert.deepEqual(astBinary, [], 'bin/ast is not the hook binary and must never be flagged');
+
+  const inScope = rule.check([
+    { file: 'src/hook/index.js', source: "import { execTmux } from '../io/tmuxexec.js';\n" },
+  ]);
+  assert.equal(inScope.length, 1, 'a real hook-path violation must still be flagged');
+  assertViolationShape(inScope[0], rule.id);
 });

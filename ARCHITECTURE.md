@@ -1,6 +1,6 @@
 # Architecture
 
-Asterism is split into executable entry points, command verbs, adapter contracts, pure domain logic, external-I/O modules, and verification harnesses. The import rules that preserve these divisions are executable checks, not naming conventions (`test/import-boundaries.test.mjs`, tests “(a)” through “(e)”; `harness/lint/rules/purity.mjs`; `test/lint.test.mjs`, purity control tests).
+Asterism is split into executable entry points, command verbs, adapter contracts, pure domain logic, external-I/O modules, and verification harnesses. The import rules that preserve these divisions are executable checks, not naming conventions (`harness/lint/rules/adapter-boundary.mjs`, `harness/lint/rules/child-process-chokepoint.mjs`, `harness/lint/rules/paneio-containment.mjs`, `harness/lint/rules/no-test-harness-imports.mjs`, `harness/lint/rules/hook-keypress-ban.mjs`, `harness/lint/rules/purity.mjs`; `test/lint.test.mjs`, purity and import-boundary control tests).
 
 ## Process entry points and command routing
 
@@ -10,11 +10,11 @@ Verb modules publish `mutating`, `summary`, and `run` exports. The router derive
 
 The command layer is organized by operation rather than by shared side effects. Listing and navigation use the session pipeline (`src/cli/verbs/ls.js`, `run`; `src/cli/verbs/go.js`, `run`; `src/cli/pipeline.js`, `collectSessions`), lifecycle commands use stored records plus the lifecycle model (`src/cli/verbs/park.js`, `run`; `src/cli/verbs/unpark.js`, `run`; `src/cli/verbs/archive.js`, `run`), and creation composes UUID minting, adapter launch argv, tmux spawning, and persistence (`src/cli/verbs/new.js`, `run`; `src/core/uuid.js`, `createUuidMinter`; `src/io/tmuxexec.js`, `newWindow`; `src/io/store.js`, `openStore`).
 
-`bin/ast-hook` is a separate guest entry point. It dispatches bounded event payloads and always exits zero so hook augmentation cannot block the host turn (`bin/ast-hook`; `src/hook/index.js`, `runHook`; `test/ast-hook.test.mjs`, malformed-input and unknown-event tests). The hook import boundary forbids access to tmux keypress paths (`test/import-boundaries.test.mjs`, test “(e) ast-hook and src/hook/ cannot import a keypress path”).
+`bin/ast-hook` is a separate guest entry point. It dispatches bounded event payloads and always exits zero so hook augmentation cannot block the host turn (`bin/ast-hook`; `src/hook/index.js`, `runHook`; `test/ast-hook.test.mjs`, malformed-input and unknown-event tests). The hook import boundary forbids access to tmux keypress paths (`harness/lint/rules/hook-keypress-ban.mjs`; `test/lint.test.mjs`, control: hook-keypress-ban test).
 
 ## Adapter boundary and capability records
 
-The registry is a `Map` keyed by adapter id. It always registers the primary adapter and conditionally registers the fake adapter when `ASTERISM_FAKE_ROOT` is a non-empty string (`src/adapters/index.js`, `buildRegistry`; `test/adapter-registry.test.mjs`, registry-shape tests). Adapter directories cannot import sibling adapters or the registry; only the registry composes adapter implementations (`test/import-boundaries.test.mjs`, test “(a) no file under src/adapters/<id>/ imports a sibling adapter or the registry”).
+The registry is a `Map` keyed by adapter id. It always registers the primary adapter and conditionally registers the fake adapter when `ASTERISM_FAKE_ROOT` is a non-empty string (`src/adapters/index.js`, `buildRegistry`; `test/adapter-registry.test.mjs`, registry-shape tests). Adapter directories cannot import sibling adapters or the registry; only the registry composes adapter implementations (`harness/lint/rules/adapter-boundary.mjs`; `test/lint.test.mjs`, control: adapter-boundary test).
 
 An adapter object combines discovery, hooks, installation, capture recipes, spawn argv, environment markers, static-probe symbols, detection, and an evidence-bearing capability record (`src/adapters/claude/index.js`, default export; `src/adapters/fake/index.js`, default export). The conformance suite enumerates the registry and checks adapter ids, one discovery mechanism, capability validity, detection samples, frozen return values, spawn argv shape, and install-plan availability (`test/adapter-conformance.test.mjs`, parameterized adapter tests).
 
@@ -56,7 +56,7 @@ Lifecycle state is a separate finite-state machine over `Live`, `Parked`, and `A
 
 ## External process and tmux I/O
 
-General subprocess execution flows through `procexec`, which accepts an argv array, uses no shell, captures stdout and stderr, and kills children on timeout or output-size overflow (`src/io/procexec.js`, `procexec`; `test/procexec.test.mjs`, argv, timeout, and byte-cap tests). Structural checks prohibit shell-style exec APIs and restrict `child_process` imports to the two declared I/O modules (`harness/lint/rules/exec-ban.mjs`; `test/lint.test.mjs`, exec-ban control tests; `test/import-boundaries.test.mjs`, test “(b) only the declared exec chokepoints import child_process”).
+General subprocess execution flows through `procexec`, which accepts an argv array, uses no shell, captures stdout and stderr, and kills children on timeout or output-size overflow (`src/io/procexec.js`, `procexec`; `test/procexec.test.mjs`, argv, timeout, and byte-cap tests). Structural checks prohibit shell-style exec APIs and restrict `child_process` imports to the two declared I/O modules (`harness/lint/rules/exec-ban.mjs`; `test/lint.test.mjs`, exec-ban control tests; `harness/lint/rules/child-process-chokepoint.mjs`, control: child-process-chokepoint test).
 
 Tmux calls flow through `execTmux`, which fixes UTF-8 mode, selects an explicit socket, validates every `-t` target, and keeps launched commands as trailing argv data (`src/io/tmuxexec.js`, `execTmux`; `test/tmuxexec.test.mjs`, target and argv tests). The `tmux-argv-chokepoint` and `tmux-literal-chokepoint` lint rules limit tmux argv construction and send-keys/respawn-pane/capture-pane literals to the runtime tmux module and the capture module (`harness/lint/rules/tmux-argv-chokepoint.mjs`, `harness/lint/rules/tmux-literal-chokepoint.mjs`; `test/lint.test.mjs`, tests “ALLOWED_ARGV_FILES is pinned” and “LITERAL_EXEMPT_COUNT is pinned”).
 
@@ -76,7 +76,7 @@ Diagnostics are the checks registered in `CHECKS`; each returns `pass`, `warn`, 
 
 ## Enforced repository boundaries
 
-The `src/core/` layer may import only other core modules and permitted pure built-ins; it cannot read process environment or import filesystem, process, network, operating-system, or package modules (`harness/lint/rules/purity.mjs`; `test/lint.test.mjs`, purity sweep and synthetic controls). Product code cannot import test or harness modules, adapter implementations cannot cross-import, hook code cannot reach keypress modules, and seam paths cannot reach tmux execution (`test/import-boundaries.test.mjs`, tests “(a)” through “(e)”).
+The `src/core/` layer may import only other core modules and permitted pure built-ins; it cannot read process environment or import filesystem, process, network, operating-system, or package modules (`harness/lint/rules/purity.mjs`; `test/lint.test.mjs`, purity sweep and synthetic controls). Product code cannot import test or harness modules (`harness/lint/rules/no-test-harness-imports.mjs`), adapter implementations cannot cross-import (`harness/lint/rules/adapter-boundary.mjs`), hook code cannot reach keypress modules (`harness/lint/rules/hook-keypress-ban.mjs`), and seam paths cannot reach tmux execution (`harness/lint/rules/paneio-containment.mjs`).
 
 The refusal ledger is a frozen list of rules R1 through R9. The executable path applies R5 to mutating commands invoked inside an adapter-marked environment and applies R9 through installed-tree identity verification (`src/core/refuse.js`, `REFUSE_RULES` and `refuseIfAgentInvoked`; `bin/ast`, `main`; `test/refuse-rules.test.mjs`, rule and marker tests; `test/identity.test.mjs`, guard tests).
 
