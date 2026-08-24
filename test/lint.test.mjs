@@ -16,6 +16,11 @@ import {
   LITERAL_EXEMPT_FILE as TMUX_LITERAL_EXEMPT_FILE,
   LITERAL_EXEMPT_COUNT as TMUX_LITERAL_EXEMPT_COUNT,
 } from '../harness/lint/rules/tmux-literal-chokepoint.mjs';
+import {
+  WHOLE_WORD_BANNED as EXEC_BAN_WHOLE_WORD_BANNED,
+  EXEC_IMPORT_PATTERNS as EXEC_BAN_IMPORT_PATTERNS,
+  SHELL_TRUE as EXEC_BAN_SHELL_TRUE,
+} from '../harness/lint/rules/exec-ban.mjs';
 import { walkFiles } from '../harness/structural.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -28,6 +33,7 @@ const EXPECTED_RULE_IDS = [
   'writer-chokepoint',
   'tmux-argv-chokepoint',
   'tmux-literal-chokepoint',
+  'exec-ban',
 ];
 
 function toRepoRelative(absPath) {
@@ -63,7 +69,7 @@ function assertViolationShape(violation, ruleId) {
   assert.ok(violation.message.length > 0);
 }
 
-test('registry exposes exactly eight named rules with unique stable ids', () => {
+test('registry exposes exactly nine named rules with unique stable ids', () => {
   assert.deepEqual(
     RULES.map((rule) => rule.id),
     EXPECTED_RULE_IDS,
@@ -587,4 +593,64 @@ test('control: tmux-literal-chokepoint flags a moved counted exemption in either
   const missing = rule.check([{ file: 'src/io/paneio.js', source: 'export function noop() {}\n' }]);
   assert.equal(missing.length, 1, 'a missing exempt file must not silently pass the count check');
   assertViolationShape(missing[0], rule.id);
+});
+
+test('exec-ban sweep visits both extensionless binaries', () => {
+  const rule = ruleById('exec-ban');
+  const scannedRel = filesFor(rule).map((file) => file.file);
+  assert.ok(scannedRel.includes('bin/ast'), 'sweep did not visit bin/ast');
+  assert.ok(scannedRel.includes('bin/ast-hook'), 'sweep did not visit bin/ast-hook');
+});
+
+test('control: exec-ban flags an offender in each extensionless binary', () => {
+  const rule = ruleById('exec-ban');
+
+  const astOffense = rule.check([{ file: 'bin/ast', source: "execSync('ls');\n" }]); // exec-ban-exempt: control fixture
+  assert.equal(astOffense.length, 1, 'bin/ast must be in scope for exec-ban');
+  assertViolationShape(astOffense[0], rule.id);
+
+  const hookOffense = rule.check([{ file: 'bin/ast-hook', source: "execSync('ls');\n" }]); // exec-ban-exempt: control fixture
+  assert.equal(hookOffense.length, 1, 'bin/ast-hook must be in scope for exec-ban');
+  assertViolationShape(hookOffense[0], rule.id);
+});
+
+test('control: exec-ban flags banned exec/shell-true patterns; execFile and a standalone shell var are not', () => {
+  const rule = ruleById('exec-ban');
+  const checkLine = (source) => rule.check([{ file: 'src/cli/verbs/synthetic.js', source: `${source}\n` }]);
+
+  const destructured = checkLine("const { exec } = require('node:child_process');"); // exec-ban-exempt: control fixture
+  assert.equal(destructured.length, 1);
+  assertViolationShape(destructured[0], rule.id);
+
+  assert.equal(checkLine("execSync('ls');").length, 1); // exec-ban-exempt: control fixture
+  assert.equal(checkLine("spawn('x', [], { shell: true });").length, 1); // exec-ban-exempt: control fixture
+  assert.equal(checkLine('const run = promisify(exec);').length, 1); // exec-ban-exempt: control fixture
+  assert.equal(checkLine("child_process.exec('ls');").length, 1); // exec-ban-exempt: control fixture
+  assert.equal(checkLine("cp.exec('ls');").length, 1); // exec-ban-exempt: control fixture
+
+  assert.deepEqual(checkLine("execFile('x', ['a']);"), []);
+  assert.deepEqual(checkLine('const shell = true;'), []);
+  assert.deepEqual(checkLine("spawn('x', ['a']);"), []);
+});
+
+test('exec-ban-exempt markers are pinned to exactly the lines that need them', () => {
+  const rule = ruleById('exec-ban');
+
+  function wouldOffend(line) {
+    if (EXEC_BAN_WHOLE_WORD_BANNED.test(line)) return true;
+    if (EXEC_BAN_IMPORT_PATTERNS.some((pattern) => pattern.test(line))) return true;
+    if (EXEC_BAN_SHELL_TRUE.test(line)) return true;
+    return false;
+  }
+
+  const needsMarker = {};
+  for (const file of filesFor(rule)) {
+    const flaggable = file.source.split(/\r?\n/).filter((line) => wouldOffend(line)).length;
+    if (flaggable > 0) needsMarker[file.file] = flaggable;
+  }
+  assert.deepEqual(
+    needsMarker,
+    { 'harness/lint/rules/exec-ban.mjs': 5, 'test/lint.test.mjs': 8 },
+    'expected exactly the known set of lines that require exec-ban-exempt; a new one must be a deliberate, reviewed exemption',
+  );
 });

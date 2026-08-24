@@ -1235,6 +1235,14 @@ export const MUTANTS = Object.freeze([
     claimedBy: Object.freeze(['test/lint.test.mjs']),
     why: 'skipping every matched line lets a send-keys/respawn-pane/capture-pane literal land outside adapter prose and the counted exemption unnoticed',
   }),
+  Object.freeze({
+    id: 'MUT-LINT-EXEC-BAN-DETECTION-DISARMED',
+    file: 'harness/lint/rules/exec-ban.mjs',
+    find: `      if (!execBanOffense(line)) return;`,
+    replace: `      if (true) return;`,
+    claimedBy: Object.freeze(['test/lint.test.mjs']),
+    why: 'disarming the offense check lets a banned synchronous exec-family call, exec import shape, or shell-interpreted launch land under bin/, src/, harness/, or test/ unnoticed',
+  }),
 
   // --- Architecture documentation mutant
   Object.freeze({

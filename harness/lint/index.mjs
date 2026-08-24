@@ -6,6 +6,7 @@ import { cliSubprocessUsesNode } from './rules/cli-subprocess-uses-node.mjs';
 import { writerChokepoint } from './rules/writer-chokepoint.mjs';
 import { tmuxArgvChokepoint } from './rules/tmux-argv-chokepoint.mjs';
 import { tmuxLiteralChokepoint } from './rules/tmux-literal-chokepoint.mjs';
+import { execBan } from './rules/exec-ban.mjs';
 
 export const RULES = Object.freeze([
   noSilentCatch,
@@ -16,4 +17,5 @@ export const RULES = Object.freeze([
   writerChokepoint,
   tmuxArgvChokepoint,
   tmuxLiteralChokepoint,
+  execBan,
 ]);
